@@ -7,6 +7,22 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]))
 
+(tc/quick-check 10000
+                (prop/for-all [v (gen/vector gen/int)]
+                              (let [item (first v)
+                                    v (vec (distinct (sort v)))]
+                                (= (scan-children-array v item)
+                                   (let [x (java.util.Collections/binarySearch (java.util.ArrayList. v) item)]
+                                     (if (neg? x)
+                                       (- (inc x))
+                                       x))
+
+                                   )
+
+                                )
+                              )
+                )
+
 (deftest simple-read-only-behavior
   (testing "scan-children-array"
     (are [x y] (= (scan-children-array [1 2 5 6] x) y)
@@ -31,13 +47,14 @@
       (is (= (lookup-fwd-iter root 0) (range 1 11))))))
 
 (def added-keys-appear-in-order
-  (prop/for-all [v (gen/vector gen/pos-int)]
+  (prop/for-all [v (gen/vector gen/int)]
                 (let [sorted-set-order (into (sorted-set) v)
                       b-tree (reduce insert-key (empty-b-tree) v)
                       b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)]
                   (= (seq sorted-set-order) b-tree-order))))
 
 (defspec b-tree-sorts-uniques-random-int-vector
+  1000
   added-keys-appear-in-order)
 
 (comment
@@ -62,7 +79,7 @@
                               b-tree-order))
                   ))
 
-  (tc/quick-check 100 added-keys-appear-in-order))
+  (tc/quick-check 1000 added-keys-appear-in-order))
 
 ()
 

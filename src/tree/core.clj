@@ -17,6 +17,12 @@
           "Returns one or 2 new nodes, if it had to split")
   (underflow [node parent] "returns the ") ;;TODO 
   )
+;; We'll unify deleting keys from leaves and from indexed blocks by working on indices
+;; Given a node, we'll remove a target index from it. If that doesn't cause it to underflow, it returns the modified node. If it does cause it to underflow, it can also see its siblings, with whom it can merge, then potentially split. If it did a merge and split (aka steal), then we simply rewrite the 2 children in the parent's index, and update
+;; Rewrite requirements:
+;; If no underflow occured, simply updates itself
+;; If some underflow occurred, it could steal from the left or right sibling.
+;; Can be called with some number of siblings
 
 (defprotocol IResolve
   "This is how we store the children. The indirection enables background
@@ -28,6 +34,7 @@
   Object
   (compare [key1 key2] (clojure.core/compare key1 key2)))
 
+;;TODO use Collections/binarySearch
 (defn scan-children-array
   "This function takes an array of keys. There must be an odd # of elts in it.
 
@@ -127,7 +134,7 @@
                                            (drop index children))))]
       (if (>= (count new-data-children) (* 2 b))
         [(->DataNode (vec (take b new-data-children)))
-         (nth new-data-children (dec b))
+         (nth new-data-children (dec b)) ;; Could change the index leaning by doing (- b 2)
          (->DataNode (vec (drop b new-data-children)))]
         [(->DataNode new-data-children)])))
   (insert [node index new-child1 median new-child2]
@@ -170,12 +177,13 @@
                  (< (inc index) (count (:children parent)))))]
     (let [next-index (-> common-parent-path peek inc)
           parent (-> common-parent-path pop peek)
-          new-sibling (nth (:children parent) next-index)
+          new-sibling (resolve (nth (:children parent) next-index))
           ;; We must get back down to the data node
-          sibling-lineage (->> new-sibling
-                               (iterate #(-> % :children first))
-                               (take-while #(or (instance? IndexNode %)
-                                                (instance? DataNode %))))
+          sibling-lineage (into []
+                                (comp (take-while #(or (instance? IndexNode %)
+                                                       (instance? DataNode %)))
+                                      (map resolve))
+                                (iterate #(-> % :children first) new-sibling))
           path-suffix (-> (interleave sibling-lineage
                                       (repeat 0))
                           (butlast)) ; butlast ensures we end w/ node
