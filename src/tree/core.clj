@@ -171,6 +171,8 @@
   "Given a node on a path, find's that node's right successor node"
   [path]
   ;(clojure.pprint/pprint path)
+  ;TODO this function would benefit from a prefetching hint
+  ;     to keep the next several sibs in mem
   (when-let [common-parent-path
              (backtrack-up-path-until
                path
