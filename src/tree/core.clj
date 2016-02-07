@@ -32,17 +32,17 @@
   [keys key]
   (let [key-len (count keys)]
     (loop [i 0]
-    (if (> key-len i) ;; Are there more elements?
-      (let [result (compare (nth keys i) key)]
-        (cond
-          (neg? result) ;; If current key is smaller, keep scanning
-          (recur (inc i))
-          (or (zero? result) (pos? result))
-          i
-          :else
-          (throw (ex-info "lol" {:no :darn}))))
-      ;; All keys are smaller
-      key-len))))
+      (if (> key-len i) ;; Are there more elements?
+        (let [result (compare (nth keys i) key)]
+          (cond
+            (neg? result) ;; If current key is smaller, keep scanning
+            (recur (inc i))
+            (or (zero? result) (pos? result))
+            i
+            :else
+            (throw (ex-info "lol" {:no :darn}))))
+        ;; All keys are smaller
+        key-len))))
 
 ;; TODO enforce that there always (= (count children) (inc (count keys)))
 ;;
@@ -64,14 +64,14 @@
           ;;TODO find a better datastructure than vector
           ;;use the vector with lg time split/merge
           new-keys (vec (concat (take index keys)
-                                  [median]
-                                  (drop (inc index) keys)))]
+                                [median]
+                                (drop index keys)))]
       (if (>= (count new-children) (* 2 b))
         (let [split-med (nth new-keys (dec b))
               left-index (->IndexNode (vec (take (dec b) new-keys))
                                       (vec (take b new-children)))
               right-index (->IndexNode (vec (drop b new-keys))
-                                      (vec (drop b new-children)))
+                                       (vec (drop b new-children)))
               median (nth new-keys (dec b))]
           [left-index median right-index])
         [(->IndexNode new-keys
@@ -94,15 +94,15 @@
           ;;TODO find a better datastructure than vector
           ;;use the vector with lg time split/merge
           new-keys (vec (concat (take index keys)
-                                  [median]
-                                  (drop index keys)))]
+                                [median]
+                                (drop index keys)))]
       ;(println "new keys:" new-keys)
       (if (>= (count new-children) (* 2 b))
         (let [split-med (nth new-keys (dec b))
               left-index (->IndexNode (vec (take (dec b) new-keys))
                                       (vec (take b new-children)))
               right-index (->IndexNode (vec (drop b new-keys))
-                                      (vec (drop b new-children)))
+                                       (vec (drop b new-children)))
               median (nth new-keys (dec b))]
           [left-index median right-index])
         [(->RootNode new-keys
@@ -111,44 +111,46 @@
   (lookup [root key]
     (scan-children-array keys key)))
 
-(defrecord DataNode [keys children]
+(defrecord DataNode [children]
   IResolve
   (resolve [this] this) ;;TODO this is a hack for testing
   IInsert
   (insert
-    [node index new-child]
+    [node index key]
+    ;cases:
+    ;1. index > children; append to end of children
+    ;2. index within children
+    ;2.1. If index is equal, skip
+    ;2.2 If unequal, slip-insert
+    ;3. possibly split
     ;(println "index" index "(count children)" (count children))
-    ;(println "new-child" new-child "children" children)
-    (if (= new-child (nth children index)) ;duplicate-key? 
-      [node]
-      (let [
-            index (if (and (= index (count keys))
-                           (neg? (compare (peek children) new-child)))
-                    (inc index)
-                    index)
-            ;new-data-children (if (and (not= (count children) index)
-            ;                           (= (nth children index) new-child))
-            ;                    (assoc children index new-child)
-            ;                    (vec (concat (take index children)
-            ;                                 [new-child]
-            ;                                 (drop index children))))
-            new-data-children (vec (concat (take index children)
-                                           [new-child]
-                                           (drop index children)))
-            ]
-        (if (>= (count new-data-children) (* 2 b))
-          [(->DataNode (vec (take (dec b) new-data-children))
-                       (vec (take b new-data-children)))
-           (nth new-data-children (dec b))
-           (->DataNode (vec (butlast (drop b new-data-children))) ;is butlast right here?
-                       (vec (drop b new-data-children)))]
-          [(->DataNode (vec (butlast new-data-children))
-                       new-data-children)])))) 
+    ;(println "key" key "children" children)
+    (assert (<= 0 index (count children)) "index have a value out of the defined meaning")
+    (let [new-data-children (cond
+                              (= index (count children))
+                              (conj children key)
+                              (= (nth children index) key) ;;TODO this case could bypass
+                              children
+                              :else
+                              (vec (concat (take index children)
+                                           [key]
+                                           (drop index children))))]
+      (if (>= (count new-data-children) (* 2 b))
+        [(->DataNode (vec (take b new-data-children)))
+         (nth new-data-children (dec b))
+         (->DataNode (vec (drop b new-data-children)))]
+        [(->DataNode new-data-children)])))
   (insert [node index new-child1 median new-child2]
     (throw (ex-info "impossible--only for index or root nodes" {}))) 
   INodeLookup
   (lookup [root key]
-    (scan-children-array keys key)))
+    (loop [i 0]
+      (if (= i (count children))
+        i
+        (let [result (compare key (nth children i))]
+          (if (pos? result)
+            (recur (inc i))
+            i))))))
 
 (defn forward-iterator
   "Takes the result of a search and returns an iterator going
@@ -182,7 +184,7 @@
                                                     next-index ; the sibling's index
                                                     )
                                               path-suffix)
-                                      0)))) ; always start at the first elt in the node
+                                        0)))) ; always start at the first elt in the node
                                 nil ;nowhere to go from the root
                                 ))))]
       (concat first-elements next-elements))))
@@ -195,7 +197,7 @@
          ]
     (if (seq (:children cur))
       (let [index (lookup cur key)
-            child (nth (:children cur) index)
+            child (nth (:children cur) index (peek (:children cur))) ;;TODO what are the semantics for exceeding on the right? currently it's trunc to the last element
             path' (conj path index child)]
         (if (instance? DataNode cur) ;are we done?
           path'
@@ -234,6 +236,9 @@
   ;; For the root, we'll smash it together a last time; if it's too big, we reroot
   ;; otherwise, we're done
   (let [path (lookup-path tree new-key)]
+    ;(println "# insert-key")
+    ;(clojure.pprint/pprint tree)
+    ;(println "Doing insert with path" (map #(:keys % %) path))
     (if path
       (loop [path (next (rseq path))
              new-elts [new-key]]
@@ -249,16 +254,16 @@
                 (->RootNode [m] [l r])))
             (recur (nnext path) insert-result))))
       ;; Special case for insert into empty tree, since we can't compute paths yet
-      (->RootNode [] [(->DataNode [] [new-key])]))))
+      (->RootNode [] [(->DataNode [new-key])]))))
 
 (defn empty-b-tree
   []
-  (->RootNode [] [(->DataNode [] [])]))
+  (->RootNode [] [(->DataNode [])]))
 
-(let [x [1 2 3 4 5]
-      i (scan-children-array x 2.5)]
-  (println i)
-  (concat (take i x) [2.5] (drop i x))
-  )
+#_(let [x [1 2 3 4 5]
+        i (scan-children-array x 2.5)]
+    (println i)
+    (concat (take i x) [2.5] (drop i x))
+    )
 
-(println "insert:" (insert (->DataNode [1 2 3] [1 2 3 4]) 2 2.5))
+;(println "insert:" (insert (->DataNode [1 2 3 4]) 2 2.5))
