@@ -7,22 +7,6 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]))
 
-(tc/quick-check 10000
-                (prop/for-all [v (gen/vector gen/int)]
-                              (let [item (first v)
-                                    v (vec (distinct (sort v)))]
-                                (= (scan-children-array v item)
-                                   (let [x (java.util.Collections/binarySearch (java.util.ArrayList. v) item)]
-                                     (if (neg? x)
-                                       (- (inc x))
-                                       x))
-
-                                   )
-
-                                )
-                              )
-                )
-
 (deftest simple-read-only-behavior
   (testing "scan-children-array"
     (are [x y] (= (scan-children-array [1 2 5 6] x) y)
@@ -58,13 +42,19 @@
   added-keys-appear-in-order)
 
 (comment
-  (scan-children-array [0] 0)
+
+  (java.util.Collections/binarySearch [0] -200 (comparator compare))
+  (scan-children-array [0] -200)
   (clojure.pprint/pprint
     (reduce insert-key (empty-b-tree) [5 6 7 8 0 2 3 4 1 6])
     )
   (let [v #_[1 2 ]
         #_[8 0 9 1 10 14 15 2 16 3 17 18 4 11 19 20 7 6 12 13 5 9]
-        [0 5 6 1 7 11 17 12 13 18 2 3 19 20 8 9 14 10 15 4 16 18]]
+        ;(subvec [1 2 3 4 5 6 7] 0 5)
+        ;(subvec [1 2 3 4 5 6 7] 5)
+#_[0 -1 2 -2 1 3]
+        [0 4 5 2 6 3 -3 7 -4 -5 -6 8 -7 -1 -8 -2 1 #_9 #_1]
+        #_[0 5 6 1 7 11 17 12 13 18 2 3 19 20 8 9 14 10 15 4 16 18]]
                 (let [sorted-set-order (into (sorted-set) v)
                       b-tree (reduce insert-key (empty-b-tree) v)
                       b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)

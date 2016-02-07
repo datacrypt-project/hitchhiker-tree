@@ -1,5 +1,6 @@
 (ns tree.core
-  (:refer-clojure :exclude [compare resolve]))
+  (:refer-clojure :exclude [compare resolve subvec])
+  (:require [clojure.core.rrb-vector :refer (catvec subvec)]))
 
 (def b 3)
 
@@ -34,7 +35,7 @@
   Object
   (compare [key1 key2] (clojure.core/compare key1 key2)))
 
-;;TODO use Collections/binarySearch
+;;TODO use Collections/binarySearch, requires us to use a more standard comparator
 (defn scan-children-array
   "This function takes an array of keys. There must be an odd # of elts in it.
 
@@ -62,21 +63,19 @@
 
 (defn handle-multi-insert
   [factory {:keys [keys children] :as node} index new-child1 median new-child2]
-  (let [new-children (vec (concat (take index children)
-                                  [new-child1 new-child2]
-                                  (drop (inc index) children)))
-        ;;TODO find a better datastructure than vector
-        ;;use the vector with lg time split/merge
-        new-keys (vec (concat (take index keys)
-                              [median]
-                              (drop index keys)))]
+  (let [new-children (catvec (conj (subvec children 0 index)
+                                   new-child1 new-child2)
+                             (subvec children (inc index)))
+        new-keys (catvec (conj (subvec keys 0 index)
+                               median)
+                         (subvec keys index))]
     (if (>= (count new-children) (* 2 b))
       (let [split-med (nth new-keys (dec b))
             ;; One day, this hardcoded ->IndexNode will cause pain
-            left-index (->IndexNode (vec (take (dec b) new-keys))
-                                    (vec (take b new-children)))
-            right-index (->IndexNode (vec (drop b new-keys))
-                                     (vec (drop b new-children)))
+            left-index (->IndexNode (subvec new-keys 0 (dec b))
+                                    (subvec new-children 0 b))
+            right-index (->IndexNode (subvec new-keys b)
+                                     (subvec new-children b))
             median (nth new-keys (dec b))]
         [left-index median right-index])
       [(factory new-keys
@@ -129,13 +128,13 @@
                               (= (nth children index) key) ;;TODO this case could be a bypass to avoid making a new datanode
                               children
                               :else
-                              (vec (concat (take index children)
-                                           [key]
-                                           (drop index children))))]
+                              (catvec (conj (subvec children 0 index)
+                                            key)
+                                      (subvec children index)))]
       (if (>= (count new-data-children) (* 2 b))
-        [(->DataNode (vec (take b new-data-children)))
+        [(->DataNode (subvec new-data-children 0 b))
          (nth new-data-children (dec b)) ;; Could change the index leaning by doing (- b 2)
-         (->DataNode (vec (drop b new-data-children)))]
+         (->DataNode (subvec new-data-children b))]
         [(->DataNode new-data-children)])))
   (insert [node index new-child1 median new-child2]
     (throw (ex-info "impossible--only for index or root nodes" {}))) 
@@ -198,9 +197,9 @@
   [path start-index]
   (let [start-node (peek path)]
     (assert (instance? DataNode start-node))
-    (let [first-elements (->> start-node
-                              :children ; Get the indices of it
-                              (drop start-index)) ; skip to the start-index
+    (let [first-elements (-> start-node
+                             :children ; Get the indices of it
+                             (subvec start-index)) ; skip to the start-index
           next-elements (lazy-seq
                           (when-let [succ (right-successor (pop path))]
                             (forward-iterator succ 0)))]
