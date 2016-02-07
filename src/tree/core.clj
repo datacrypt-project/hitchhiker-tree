@@ -3,26 +3,30 @@
 
 (def b 3)
 
-(defprotocol INodeLookup
-  (lookup [node key] "Returns the child node which contains the given key"))
-
 (defprotocol IKeyCompare
   (compare [key1 key2]))
 
+;; TODO merge w/ IInsert?
+(defprotocol INodeLookup
+  (lookup [node key] "Returns the child node which contains the given key"))
+
+;;TODO rename to something other than IInsert
 (defprotocol IInsert
   (insert [node index new-child]
           [node index new-child1 median new-child2]
-          "Returns one or 2 new nodes, if it had to split"
-          ))
-
-(extend-protocol IKeyCompare
-  Object
-  (compare [key1 key2] (clojure.core/compare key1 key2)))
+          "Returns one or 2 new nodes, if it had to split")
+  (underflow [node parent] "returns the ") ;;TODO 
+  )
 
 (defprotocol IResolve
   "This is how we store the children. The indirection enables background
    fetch and decode of the resource."
   (resolve [this]))
+
+(extend-protocol IKeyCompare
+  ;; By default, we use the default comparator
+  Object
+  (compare [key1 key2] (clojure.core/compare key1 key2)))
 
 (defn scan-children-array
   "This function takes an array of keys. There must be an odd # of elts in it.
@@ -49,6 +53,28 @@
 ;; TODO we should be able to find all uncommited data by searching for
 ;; resolved & unresolved children
 
+(defn handle-multi-insert
+  [factory {:keys [keys children] :as node} index new-child1 median new-child2]
+  (let [new-children (vec (concat (take index children)
+                                  [new-child1 new-child2]
+                                  (drop (inc index) children)))
+        ;;TODO find a better datastructure than vector
+        ;;use the vector with lg time split/merge
+        new-keys (vec (concat (take index keys)
+                              [median]
+                              (drop index keys)))]
+    (if (>= (count new-children) (* 2 b))
+      (let [split-med (nth new-keys (dec b))
+            ;; One day, this hardcoded ->IndexNode will cause pain
+            left-index (->IndexNode (vec (take (dec b) new-keys))
+                                    (vec (take b new-children)))
+            right-index (->IndexNode (vec (drop b new-keys))
+                                     (vec (drop b new-children)))
+            median (nth new-keys (dec b))]
+        [left-index median right-index])
+      [(factory new-keys
+                new-children)])))
+
 (defrecord IndexNode [keys children]
   IResolve
   (resolve [this] this) ;;TODO this is a hack for testing
@@ -58,24 +84,7 @@
     (let [new-children (assoc children index new-child)]
       [(->IndexNode keys new-children)]))
   (insert [node index new-child1 median new-child2]
-    (let [new-children (vec (concat (take index children)
-                                    [new-child1 new-child2]
-                                    (drop (inc index) children)))
-          ;;TODO find a better datastructure than vector
-          ;;use the vector with lg time split/merge
-          new-keys (vec (concat (take index keys)
-                                [median]
-                                (drop index keys)))]
-      (if (>= (count new-children) (* 2 b))
-        (let [split-med (nth new-keys (dec b))
-              left-index (->IndexNode (vec (take (dec b) new-keys))
-                                      (vec (take b new-children)))
-              right-index (->IndexNode (vec (drop b new-keys))
-                                       (vec (drop b new-children)))
-              median (nth new-keys (dec b))]
-          [left-index median right-index])
-        [(->IndexNode new-keys
-                      new-children)])))
+    (handle-multi-insert ->IndexNode node index new-child1 median new-child2))
   INodeLookup
   (lookup [root key]
     (scan-children-array keys key)))
@@ -87,26 +96,7 @@
     (let [new-children (assoc children index new-child)]
       [(->RootNode keys new-children)]))
   (insert [node index new-child1 median new-child2]
-    ;(println "root recieving split children")
-    (let [new-children (vec (concat (take index children)
-                                    [new-child1 new-child2]
-                                    (drop (inc index) children)))
-          ;;TODO find a better datastructure than vector
-          ;;use the vector with lg time split/merge
-          new-keys (vec (concat (take index keys)
-                                [median]
-                                (drop index keys)))]
-      ;(println "new keys:" new-keys)
-      (if (>= (count new-children) (* 2 b))
-        (let [split-med (nth new-keys (dec b))
-              left-index (->IndexNode (vec (take (dec b) new-keys))
-                                      (vec (take b new-children)))
-              right-index (->IndexNode (vec (drop b new-keys))
-                                       (vec (drop b new-children)))
-              median (nth new-keys (dec b))]
-          [left-index median right-index])
-        [(->RootNode new-keys
-                     new-children)])))
+    (handle-multi-insert ->RootNode node index new-child1 median new-child2))
   INodeLookup
   (lookup [root key]
     (scan-children-array keys key)))
@@ -264,6 +254,7 @@
         ;(println "path is" path)
         (let [insert-index (first path)
               insert-node (fnext path)
+              ;;TODO this apply should be direct dispatch b/c this is slow
               insert-result (apply insert insert-node insert-index new-elts)]
           ;(println "insert result was" insert-result)
           (if (= 2 (count path)) ; we've only got the root node
@@ -274,6 +265,11 @@
             (recur (nnext path) insert-result))))
       ;; Special case for insert into empty tree, since we can't compute paths yet
       (->RootNode [] [(->DataNode [new-key])]))))
+
+(defn delete-key
+  [tree key]
+  (let [path (lookup-path tree key)])
+  )
 
 (defn empty-b-tree
   []
