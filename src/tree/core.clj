@@ -129,7 +129,7 @@
     (let [new-data-children (cond
                               (= index (count children))
                               (conj children key)
-                              (= (nth children index) key) ;;TODO this case could bypass
+                              (= (nth children index) key) ;;TODO this case could be a bypass to avoid making a new datanode
                               children
                               :else
                               (vec (concat (take index children)
@@ -152,6 +152,46 @@
             (recur (inc i))
             i))))))
 
+(defn backtrack-up-path-until
+  "Given a path (starting with root and ending with an index), searches backwards,
+   passing each pair of parent & index we just came from to the predicate function.
+   When that function returns true, we return the path ending in the index for which
+   it was true, or else we return the empty path"
+  [path pred]
+  (loop [path path]
+    (when (seq path)
+      (let [from-index (peek path)
+            tmp (pop path)
+            parent (peek tmp)]
+        (if (pred parent from-index)
+          path
+          (recur (pop tmp)))))))
+
+(defn right-successor
+  "Given a node on a path, find's that node's right successor node"
+  [path]
+  ;(clojure.pprint/pprint path)
+  (when-let [common-parent-path
+             (backtrack-up-path-until
+               path
+               (fn [parent index]
+                 (< (inc index) (count (:children parent)))))]
+    (let [next-index (-> common-parent-path peek inc)
+          parent (-> common-parent-path pop peek)
+          new-sibling (nth (:children parent) next-index)
+          ;; We must get back down to the data node
+          sibling-lineage (->> new-sibling
+                               (iterate #(-> % :children first))
+                               (take-while #(or (instance? IndexNode %)
+                                                (instance? DataNode %))))
+          path-suffix (-> (interleave sibling-lineage
+                                      (repeat 0))
+                          (butlast)) ; butlast ensures we end w/ node
+          ]
+      (-> (pop common-parent-path)
+          (conj next-index)
+          (into path-suffix)))))
+
 (defn forward-iterator
   "Takes the result of a search and returns an iterator going
    forward over the tree. Does lg(n) backtracking sometimes."
@@ -162,31 +202,8 @@
                               :children ; Get the indices of it
                               (drop start-index)) ; skip to the start-index
           next-elements (lazy-seq
-                          (loop [path path]
-                            (let [tmp (pop path)]
-                              (if-let [cur-index (peek tmp)] ; could we have a sibling?
-                                (let [next-index (inc cur-index)
-                                      path-prefix (pop tmp)]
-                                  ;; Do we have a sibling?
-                                  (if (>= next-index (count (:children (peek path-prefix))))
-                                    (recur path-prefix)
-                                    (let [new-sibling (nth (:children (peek path-prefix))
-                                                           next-index)
-                                          ;; We must get back down to the data node
-                                          sibling-lineage (->> new-sibling
-                                                               (iterate #(-> % :children first))
-                                                               (take-while #(or (instance? IndexNode %)
-                                                                                (instance? DataNode %))))
-                                          path-suffix (butlast (interleave sibling-lineage
-                                                                           (repeat 0)))]
-                                      (forward-iterator 
-                                        (into (conj path-prefix
-                                                    next-index ; the sibling's index
-                                                    )
-                                              path-suffix)
-                                        0)))) ; always start at the first elt in the node
-                                nil ;nowhere to go from the root
-                                ))))]
+                          (when-let [succ (right-successor (pop path))]
+                            (forward-iterator succ 0)))]
       (concat first-elements next-elements))))
 
 (defn lookup-path
