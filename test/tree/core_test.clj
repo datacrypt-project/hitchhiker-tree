@@ -27,7 +27,7 @@
 (def added-keys-appear-in-order
   (prop/for-all [v (gen/vector gen/int)]
                 (let [sorted-set-order (into (sorted-set) v)
-                      b-tree (reduce insert-key (empty-b-tree) v)
+                      b-tree (reduce insert (empty-b-tree) v)
                       b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)]
                   (= (seq sorted-set-order) b-tree-order))))
 
@@ -55,11 +55,11 @@
                   (= (sort (disj set e))
                      (-deletion-from-sorted-vector body e)))))
 
-(defspec test-new-insert
+(defspec test-insert
   1000
   (prop/for-all [v (gen/vector gen/int)]
                 (let [sorted-set-order (into (sorted-set) v)
-                      b-tree (reduce new-insert (empty-b-tree) v)
+                      b-tree (reduce insert (empty-b-tree) v)
                       b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)]
                   (= (seq sorted-set-order) b-tree-order)))) 
 
@@ -69,52 +69,22 @@
                  num gen/nat]
                 (let [set-a (sort the-set)
                       set-b (take num the-set)
-                      b-tree (reduce new-insert (empty-b-tree) set-a)
+                      b-tree (reduce insert (empty-b-tree) set-a)
                       b-tree-without (reduce delete b-tree set-b)
                       b-tree-order (lookup-fwd-iter b-tree-without Integer/MIN_VALUE)]
                   (= (seq (remove (set set-b) set-a)) b-tree-order))))
 
-(comment
-
-  (java.util.Collections/binarySearch [0] -200 (comparator compare))
-  (scan-children-array [0] -200)
-  (clojure.pprint/pprint
-    (reduce insert-key (empty-b-tree) [5 6 7 8 0 2 3 4 1 6])
-    )
-  (let [v #_[1 2 ]
-        #_[8 0 9 1 10 14 15 2 16 3 17 18 4 11 19 20 7 6 12 13 5 9]
-        ;(subvec [1 2 3 4 5 6 7] 0 5)
-        ;(subvec [1 2 3 4 5 6 7] 5)
-#_[0 -1 2 -2 1 3]
-        [0 4 5 2 6 3 -3 7 -4 -5 -6 8 -7 -1 -8 -2 1 #_9 #_1]
-        #_[0 5 6 1 7 11 17 12 13 18 2 3 19 20 8 9 14 10 15 4 16 18]]
-                (let [sorted-set-order (into (sorted-set) v)
-                      b-tree (reduce insert-key (empty-b-tree) v)
-                      b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)
-                      
-                      ]
-                  (clojure.pprint/pprint b-tree)
-                  ;(println "path" (lookup-path b-tree Integer/MIN_VALUE)) 
-                  ;(println "order" (lookup-fwd-iter b-tree Integer/MIN_VALUE))
-                  (println (seq sorted-set-order))
-                  (println b-tree-order)
-                  (println (= (seq sorted-set-order)
-                              b-tree-order))
-                  ))
-
-  (tc/quick-check 1000 added-keys-appear-in-order))
-
 (deftest insert-test
   (let [data1 (->DataNode [1 2 3 4])
         root (->IndexNode [] [data1])]
-    (is (= (lookup-fwd-iter (insert-key root 3) -10) [1 2 3 4]))
-    (are [x] (= (lookup-fwd-iter (insert-key root x) -10) (sort (conj [1 2 3 4] x)))
+    (is (= (lookup-fwd-iter (insert root 3) -10) [1 2 3 4]))
+    (are [x] (= (lookup-fwd-iter (insert root x) -10) (sort (conj [1 2 3 4] x)))
          0
          2.5
          5))
   (let [data1 (->DataNode [1 2 3 4 5])
         root (->IndexNode [] [data1])]
-    (are [x y] (= (lookup-fwd-iter (insert-key root x) y)
+    (are [x y] (= (lookup-fwd-iter (insert root x) y)
                   (drop-while
                     #(< % y)
                     (sort (conj [1 2 3 4 5] x))))
@@ -123,9 +93,11 @@
          5.5 3)))
 
 (deftest simple-delete-tests
-  (let [tree (reduce new-insert (empty-b-tree) (range 5))]
+  (let [tree (reduce insert (empty-b-tree) (range 5))]
     (is (= (lookup-fwd-iter (delete tree 3) 0) [0 1 2 4])))
-  (let [tree (reduce new-insert (empty-b-tree) (range 10))]
+  (let [tree (reduce insert (empty-b-tree) (range 10))]
     (is (= (lookup-fwd-iter (delete tree 0) 0) (map inc (range 9)))))
-  (let [tree (reduce new-insert (empty-b-tree) (range 6))]
+  (let [tree (reduce insert (empty-b-tree) (range 6))]
     (is (= (lookup-fwd-iter (delete tree 0) 0) (map inc (range 5))))))
+
+;;TODO make structure-verification tests that run a bunch of ops, then confirm the tree still looks OK--data and index nodes should have the right # of elements, with perfect balance on the tree
