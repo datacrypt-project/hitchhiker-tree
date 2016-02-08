@@ -7,11 +7,6 @@
 (defprotocol IKeyCompare
   (compare [key1 key2]))
 
-;; TODO merge w/ IInsert?
-(defprotocol INodeLookup
-  (lookup [node key] "Returns the child node which contains the given key"))
-
-;;TODO rename to something other than IInsert
 (defprotocol IInsert
   (insert [node index new-child]
           [node index new-child1 median new-child2]
@@ -29,7 +24,9 @@
   (overflow? [node] "Returns true if this node has too many elements")
   (underflow? [node] "Returns true if this node has too few elements")
   (merge-node [node other] "Combines this node with the other to form a bigger node. We assume they're siblings")
-  (split-node [node] "Returns a Split object with the 2 nodes that we turned this into"))
+  (last-key [node] "Returns the rightmost key of the node")
+  (split-node [node] "Returns a Split object with the 2 nodes that we turned this into")
+  (lookup [node key] "Returns the child node which contains the given key")) 
 
 (defprotocol ILeafNode
   ;;TODO remove leaf- prefix
@@ -79,7 +76,22 @@
           [left-index median right-index])
         [(->IndexNode new-keys
                       new-children)])))
-  INodeLookup
+  INode
+  (overflow? [this]
+    (>= (count children) (* 2 b)))
+  (underflow? [this]
+    (< (count children) b))
+  (split-node [this]
+    (->Split (->IndexNode (subvec keys 0 (dec b))
+                          (subvec children 0 b))
+             (->IndexNode (subvec keys b)
+                          (subvec children b))
+             (nth keys (dec b))))
+  (merge-node [this other]
+    (->IndexNode (catvec (conj keys (last-key (peek children))) (:keys other))
+                 (catvec children (:children other))))
+  (last-key [this]
+    (peek keys))
   (lookup [root key]
     (let [x (java.util.Collections/binarySearch keys key compare)]
       (if (neg? x)
@@ -117,7 +129,20 @@
         [(->DataNode new-data-children)])))
   (insert [node index new-child1 median new-child2]
     (throw (ex-info "impossible--only for index or root nodes" {}))) 
-  INodeLookup
+  INode
+  ;; Should have between b & 2b-1 children
+  (overflow? [this]
+    (>= (count children) (* 2 b)))
+  (underflow? [this]
+    (< (count children) b))
+  (last-key [this]
+    (peek children))
+  (split-node [this]
+    (->Split (->DataNode (subvec children 0 b))
+             (->DataNode (subvec children b))
+             (nth children (dec b))))
+  (merge-node [this other]
+    (->DataNode (catvec children (:children other))))
   (lookup [root key]
     (let [x (java.util.Collections/binarySearch children key  compare)]
       (if (neg? x)
@@ -209,6 +234,24 @@
         path (pop path)]
     (when path
       (forward-iterator path index))))
+
+(defn -insertion-into-sorted-vector
+  "Inserts the given key into the sorted vector.
+   
+   This is like a single insert from insertion sort,
+   except that we have rrb-trees, so it's O(lg(n))
+   instead :)"
+  [v key]
+  (let [index (java.util.Collections/binarySearch v key compare)]
+    (if (neg? index)
+      (let [index (- (inc index))]
+        (if (= (count v) index)
+          (conj v key)
+          (let [left (subvec v 0 index)
+                right (subvec v index)]
+            (catvec (conj left key) right))))
+      ;;This assoc-in should be a no-op, but models how to do the KV update
+      (assoc v index key))))
 
 (defn insert-key
   [tree new-key]

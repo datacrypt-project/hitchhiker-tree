@@ -35,6 +35,13 @@
   1000
   added-keys-appear-in-order)
 
+(defspec test-insert-into-sorted-vector
+  10000
+  (prop/for-all [v (gen/vector gen/int 1)]
+                (let [head (peek v)
+                      body (sort (pop v))]
+                  (= (sort v) (-insertion-into-sorted-vector body head)))))
+
 (comment
 
   (java.util.Collections/binarySearch [0] -200 (comparator compare))
