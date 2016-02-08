@@ -38,10 +38,22 @@
 (defspec test-insert-into-sorted-vector
   1000
   (prop/for-all [set (gen/set gen/int)
+                 resample? gen/boolean
                  e gen/int]
-                (let [body (vec (sort set))]
+                (let [body (vec (sort set))
+                      e (if resample? (first set) e)]
                   (= (sort (conj set e))
                      (-insertion-into-sorted-vector body e)))))
+
+(defspec test-delete-from-sorted-vector
+  1000
+  (prop/for-all [set (gen/set gen/int)
+                 resample? gen/boolean
+                 e gen/int]
+                (let [body (vec (sort set))
+                      e (if resample? (first set) e)]
+                  (= (sort (disj set e))
+                     (-deletion-from-sorted-vector body e)))))
 
 (defspec test-new-insert
   1000
@@ -50,6 +62,17 @@
                       b-tree (reduce new-insert (empty-b-tree) v)
                       b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)]
                   (= (seq sorted-set-order) b-tree-order)))) 
+
+(defspec test-delete2
+  1000
+  (prop/for-all [the-set (gen/vector-distinct gen/int)
+                 num gen/nat]
+                (let [set-a (sort the-set)
+                      set-b (take num the-set)
+                      b-tree (reduce new-insert (empty-b-tree) set-a)
+                      b-tree-without (reduce delete b-tree set-b)
+                      b-tree-order (lookup-fwd-iter b-tree-without Integer/MIN_VALUE)]
+                  (= (seq (remove (set set-b) set-a)) b-tree-order))))
 
 (comment
 
@@ -98,3 +121,11 @@
          0 3
          2.5 2
          5.5 3)))
+
+(deftest simple-delete-tests
+  (let [tree (reduce new-insert (empty-b-tree) (range 5))]
+    (is (= (lookup-fwd-iter (delete tree 3) 0) [0 1 2 4])))
+  (let [tree (reduce new-insert (empty-b-tree) (range 10))]
+    (is (= (lookup-fwd-iter (delete tree 0) 0) (map inc (range 9)))))
+  (let [tree (reduce new-insert (empty-b-tree) (range 6))]
+    (is (= (lookup-fwd-iter (delete tree 0) 0) (map inc (range 5))))))

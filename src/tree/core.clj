@@ -91,7 +91,8 @@
     (->IndexNode (catvec (conj keys (last-key (peek children))) (:keys other))
                  (catvec children (:children other))))
   (last-key [this]
-    (peek keys))
+    ;;TODO should optimize by caching to reduce IOps (can use monad)
+    (last-key (peek children)))
   (lookup [root key]
     (let [x (java.util.Collections/binarySearch keys key compare)]
       (if (neg? x)
@@ -254,6 +255,15 @@
       ;;if we inserted a new key unconditionally here, that might enable multiple values per key
       (assoc v index key))))
 
+(defn -deletion-from-sorted-vector
+  [v key]
+  (let [index (java.util.Collections/binarySearch v key compare)]
+    (cond
+      (neg? index) v ; not found, do nothing
+      (zero? index) (subvec v 1) ; if first, no need to concat
+      (= (dec (count v)) index) (pop v) ; if last, just pop
+      :else (catvec (subvec v 0 index) (subvec v (inc index))))))
+
 (defn insert-key
   [tree new-key]
   ;; The path's structure will be:
@@ -299,11 +309,13 @@
   (let [path (pop (pop (lookup-path tree key))) ; don't care about the found key or its index
         {:keys [children] :or {children []}} (peek path)
         updated-data-node (->DataNode (-insertion-into-sorted-vector children key))]
-    ;(println "DUMP "path children updated-data-node)
     (loop [node updated-data-node
            path (pop path)]
       (if (empty? path)
-        node
+        (if (overflow? node)
+          (let [{:keys [left right median]} (split-node node)]
+            (->IndexNode [median] [left right]))
+          node)
         (let [index (peek path)
               {:keys [children keys] :as parent} (peek (pop path))]
           (if (overflow? node) ; splice the split into the parent
@@ -321,8 +333,49 @@
 
 (defn delete
   [tree key]
-
-  )
+  (let [path (pop (pop (lookup-path tree key))) ; don't care about the found key or its index
+        {:keys [children] :or {children []}} (peek path)
+        updated-data-node (->DataNode (-deletion-from-sorted-vector children key))]
+    (loop [node updated-data-node
+           path (pop path)]
+      (if (empty? path)
+        ;; Check for special root underflow case
+        (if (and (instance? IndexNode node) (= 1 (count (:children node))))
+          (first (:children node))
+          node)
+        (let [index (peek path)
+              {:keys [children keys] :as parent} (peek (pop path))]
+          (if (underflow? node) ; splice the split into the parent
+            ;;TODO this needs to use a polymorphic sibling-count to work on serialized nodes
+            (let [bigger-sibling-idx
+                  (cond
+                    (= (dec (count children)) index) (dec index) ; only have left sib
+                    (zero? index) 1 ;only have right sib
+                    (> (count (:children (nth children (dec index))))
+                       (count (:children (nth children (inc index)))))
+                    (dec index) ; right sib bigger
+                    :else (inc index))
+                  node-first? (> bigger-sibling-idx index) ; if true, `node` is left
+                  merged (if node-first?
+                           (merge-node node (nth children bigger-sibling-idx))
+                           (merge-node (nth children bigger-sibling-idx) node))
+                  old-left-children (subvec children 0 (min index bigger-sibling-idx))
+                  old-right-children (subvec children (inc (max index bigger-sibling-idx)))
+                  old-left-keys (subvec keys 0 (min index bigger-sibling-idx))
+                  old-right-keys (subvec keys (max index bigger-sibling-idx))]
+              (if (overflow? merged)
+                (let [{:keys [left right median]} (split-node merged)]
+                  (recur (->IndexNode (catvec (conj old-left-keys median)
+                                              old-right-keys)
+                                      (catvec (conj old-left-children left right)
+                                              old-right-children))
+                         (pop (pop path))))
+                (recur (->IndexNode (catvec old-left-keys old-right-keys)
+                                    (catvec (conj old-left-children merged)
+                                            old-right-children))
+                       (pop (pop path)))))
+            (recur (->IndexNode keys (assoc children index node))
+                   (pop (pop path)))))))))
 
 (defn empty-b-tree
   []
