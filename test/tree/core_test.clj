@@ -7,18 +7,12 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]))
 
+
 (deftest simple-read-only-behavior
-  (testing "scan-children-array"
-    (are [x y] (= (scan-children-array [1 2 5 6] x) y)
-         -10 0
-         1 0
-         3 2
-         5 2
-         10 4))
   (testing "Basic searches"
     (let [data1 (->DataNode [1 2 3 4 5])
           data2 (->DataNode [6 7 8 9 10])
-          root (->RootNode [5] [data1 data2])]
+          root (->IndexNode [5] [data1 data2])]
       (is (= (lookup-key root -10) 1) "first key must be LEQ than search key to go past the first elt")
       (is (= (lookup-key root 100) 10) "last key is still LEQ than search key")
       (dotimes [i 10]
@@ -26,7 +20,7 @@
   (testing "basic fwd iterator"
     (let [data1 (->DataNode [1 2 3 4 5])
           data2 (->DataNode [6 7 8 9 10])
-          root (->RootNode [5] [data1 data2])]
+          root (->IndexNode [5] [data1 data2])]
       (is (= (lookup-fwd-iter root 4) (range 4 11)))
       (is (= (lookup-fwd-iter root 0) (range 1 11))))))
 
@@ -71,18 +65,16 @@
 
   (tc/quick-check 1000 added-keys-appear-in-order))
 
-()
-
 (deftest insert-test
   (let [data1 (->DataNode [1 2 3 4])
-        root (->RootNode [] [data1])]
+        root (->IndexNode [] [data1])]
     (is (= (lookup-fwd-iter (insert-key root 3) -10) [1 2 3 4]))
     (are [x] (= (lookup-fwd-iter (insert-key root x) -10) (sort (conj [1 2 3 4] x)))
          0
          2.5
          5))
   (let [data1 (->DataNode [1 2 3 4 5])
-        root (->RootNode [] [data1])]
+        root (->IndexNode [] [data1])]
     (are [x y] (= (lookup-fwd-iter (insert-key root x) y)
                   (drop-while
                     #(< % y)

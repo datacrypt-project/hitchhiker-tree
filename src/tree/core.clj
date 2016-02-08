@@ -25,6 +25,19 @@
 ;; If some underflow occurred, it could steal from the left or right sibling.
 ;; Can be called with some number of siblings
 
+(defprotocol INode
+  (overflow? [node] "Returns true if this node has too many elements")
+  (underflow? [node] "Returns true if this node has too few elements")
+  (merge-node [node other] "Combines this node with the other to form a bigger node. We assume they're siblings")
+  (split-node [node] "Returns a Split object with the 2 nodes that we turned this into"))
+
+(defprotocol ILeafNode
+  ;;TODO remove leaf- prefix
+  (leaf-insert-key [node key])
+  (leaf-delete-key [node key]))
+
+(defrecord Split [left right median])
+
 (defprotocol IResolve
   "This is how we store the children. The indirection enables background
    fetch and decode of the resource."
@@ -35,51 +48,10 @@
   Object
   (compare [key1 key2] (clojure.core/compare key1 key2)))
 
-;;TODO use Collections/binarySearch, requires us to use a more standard comparator
-(defn scan-children-array
-  "This function takes an array of keys. There must be an odd # of elts in it.
-
-   It returns the last index which is less than to the given key,
-   unless no such index exists, in which case it returns the greatest index"
-  [keys key]
-  (let [key-len (count keys)]
-    (loop [i 0]
-      (if (> key-len i) ;; Are there more elements?
-        (let [result (compare (nth keys i) key)]
-          (cond
-            (neg? result) ;; If current key is smaller, keep scanning
-            (recur (inc i))
-            (or (zero? result) (pos? result))
-            i
-            :else
-            (throw (ex-info "lol" {:no :darn}))))
-        ;; All keys are smaller
-        key-len))))
-
 ;; TODO enforce that there always (= (count children) (inc (count keys)))
 ;;
 ;; TODO we should be able to find all uncommited data by searching for
 ;; resolved & unresolved children
-
-(defn handle-multi-insert
-  [factory {:keys [keys children] :as node} index new-child1 median new-child2]
-  (let [new-children (catvec (conj (subvec children 0 index)
-                                   new-child1 new-child2)
-                             (subvec children (inc index)))
-        new-keys (catvec (conj (subvec keys 0 index)
-                               median)
-                         (subvec keys index))]
-    (if (>= (count new-children) (* 2 b))
-      (let [split-med (nth new-keys (dec b))
-            ;; One day, this hardcoded ->IndexNode will cause pain
-            left-index (->IndexNode (subvec new-keys 0 (dec b))
-                                    (subvec new-children 0 b))
-            right-index (->IndexNode (subvec new-keys b)
-                                     (subvec new-children b))
-            median (nth new-keys (dec b))]
-        [left-index median right-index])
-      [(factory new-keys
-                new-children)])))
 
 (defrecord IndexNode [keys children]
   IResolve
@@ -90,22 +62,29 @@
     (let [new-children (assoc children index new-child)]
       [(->IndexNode keys new-children)]))
   (insert [node index new-child1 median new-child2]
-    (handle-multi-insert ->IndexNode node index new-child1 median new-child2))
+    (let [new-children (catvec (conj (subvec children 0 index)
+                                     new-child1 new-child2)
+                               (subvec children (inc index)))
+          new-keys (catvec (conj (subvec keys 0 index)
+                                 median)
+                           (subvec keys index))]
+      (if (>= (count new-children) (* 2 b))
+        (let [split-med (nth new-keys (dec b))
+              ;; One day, this hardcoded ->IndexNode will cause pain
+              left-index (->IndexNode (subvec new-keys 0 (dec b))
+                                      (subvec new-children 0 b))
+              right-index (->IndexNode (subvec new-keys b)
+                                       (subvec new-children b))
+              median (nth new-keys (dec b))]
+          [left-index median right-index])
+        [(->IndexNode new-keys
+                      new-children)])))
   INodeLookup
   (lookup [root key]
-    (scan-children-array keys key)))
-
-(defrecord RootNode [keys children]
-  IInsert
-  (insert
-    [node index new-child]
-    (let [new-children (assoc children index new-child)]
-      [(->RootNode keys new-children)]))
-  (insert [node index new-child1 median new-child2]
-    (handle-multi-insert ->RootNode node index new-child1 median new-child2))
-  INodeLookup
-  (lookup [root key]
-    (scan-children-array keys key)))
+    (let [x (java.util.Collections/binarySearch keys key compare)]
+      (if (neg? x)
+        (- (inc x))
+        x))))
 
 (defrecord DataNode [children]
   IResolve
@@ -140,13 +119,10 @@
     (throw (ex-info "impossible--only for index or root nodes" {}))) 
   INodeLookup
   (lookup [root key]
-    (loop [i 0]
-      (if (= i (count children))
-        i
-        (let [result (compare key (nth children i))]
-          (if (pos? result)
-            (recur (inc i))
-            i))))))
+    (let [x (java.util.Collections/binarySearch children key  compare)]
+      (if (neg? x)
+        (- (inc x))
+        x))))
 
 (defn backtrack-up-path-until
   "Given a path (starting with root and ending with an index), searches backwards,
@@ -268,10 +244,10 @@
             (if (= 1 (count insert-result))
               (first insert-result)
               (let [[l m r] insert-result]
-                (->RootNode [m] [l r])))
+                (->IndexNode [m] [l r])))
             (recur (nnext path) insert-result))))
       ;; Special case for insert into empty tree, since we can't compute paths yet
-      (->RootNode [] [(->DataNode [new-key])]))))
+      (->IndexNode [] [(->DataNode [new-key])]))))
 
 (defn delete-key
   [tree key]
@@ -280,12 +256,4 @@
 
 (defn empty-b-tree
   []
-  (->RootNode [] [(->DataNode [])]))
-
-#_(let [x [1 2 3 4 5]
-        i (scan-children-array x 2.5)]
-    (println i)
-    (concat (take i x) [2.5] (drop i x))
-    )
-
-;(println "insert:" (insert (->DataNode [1 2 3 4]) 2 2.5))
+  (->IndexNode [] [(->DataNode [])]))
