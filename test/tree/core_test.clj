@@ -36,11 +36,20 @@
   added-keys-appear-in-order)
 
 (defspec test-insert-into-sorted-vector
-  10000
-  (prop/for-all [v (gen/vector gen/int 1)]
-                (let [head (peek v)
-                      body (sort (pop v))]
-                  (= (sort v) (-insertion-into-sorted-vector body head)))))
+  1000
+  (prop/for-all [set (gen/set gen/int)
+                 e gen/int]
+                (let [body (vec (sort set))]
+                  (= (sort (conj set e))
+                     (-insertion-into-sorted-vector body e)))))
+
+(defspec test-new-insert
+  1000
+  (prop/for-all [v (gen/vector gen/int)]
+                (let [sorted-set-order (into (sorted-set) v)
+                      b-tree (reduce new-insert (empty-b-tree) v)
+                      b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)]
+                  (= (seq sorted-set-order) b-tree-order)))) 
 
 (comment
 

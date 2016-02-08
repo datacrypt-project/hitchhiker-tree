@@ -251,6 +251,7 @@
                 right (subvec v index)]
             (catvec (conj left key) right))))
       ;;This assoc-in should be a no-op, but models how to do the KV update
+      ;;if we inserted a new key unconditionally here, that might enable multiple values per key
       (assoc v index key))))
 
 (defn insert-key
@@ -291,12 +292,38 @@
             (recur (nnext path) insert-result))))
       ;; Special case for insert into empty tree, since we can't compute paths yet
       (->IndexNode [] [(->DataNode [new-key])]))))
+(lookup-path (->DataNode [1 3 5]) 4)
 
-(defn delete-key
+(defn new-insert
   [tree key]
-  (let [path (lookup-path tree key)])
+  (let [path (pop (pop (lookup-path tree key))) ; don't care about the found key or its index
+        {:keys [children] :or {children []}} (peek path)
+        updated-data-node (->DataNode (-insertion-into-sorted-vector children key))]
+    ;(println "DUMP "path children updated-data-node)
+    (loop [node updated-data-node
+           path (pop path)]
+      (if (empty? path)
+        node
+        (let [index (peek path)
+              {:keys [children keys] :as parent} (peek (pop path))]
+          (if (overflow? node) ; splice the split into the parent
+            ;;TODO refactor paths to be node/index pairs or 2 vectors or something
+            (let [{:keys [left right median]} (split-node node)
+                  new-children (catvec (conj (subvec children 0 index)
+                                             left right)
+                                       (subvec children (inc index)))
+                  new-keys (catvec (conj (subvec keys 0 index)
+                                         median)
+                                   (subvec keys index))]
+              (recur (->IndexNode new-keys new-children) (pop (pop path))))
+            (recur (->IndexNode keys (assoc children index node))
+                   (pop (pop path)))))))))
+
+(defn delete
+  [tree key]
+
   )
 
 (defn empty-b-tree
   []
-  (->IndexNode [] [(->DataNode [])]))
+  (->DataNode []))
