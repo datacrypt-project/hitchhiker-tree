@@ -10,24 +10,24 @@
 
 (deftest simple-read-only-behavior
   (testing "Basic searches"
-    (let [data1 (->DataNode [1 2 3 4 5])
-          data2 (->DataNode [6 7 8 9 10])
-          root (->IndexNode [5] [data1 data2])]
+    (let [data1 (data-node [1 2 3 4 5])
+          data2 (data-node [6 7 8 9 10])
+          root (index-node [5] [data1 data2])]
       (is (= (lookup-key root -10) 1) "first key must be LEQ than search key to go past the first elt")
       (is (= (lookup-key root 100) 10) "last key is still LEQ than search key")
       (dotimes [i 10]
         (is (= (lookup-key root (inc i)) (inc i))))))
   (testing "basic fwd iterator"
-    (let [data1 (->DataNode [1 2 3 4 5])
-          data2 (->DataNode [6 7 8 9 10])
-          root (->IndexNode [5] [data1 data2])]
+    (let [data1 (data-node [1 2 3 4 5])
+          data2 (data-node [6 7 8 9 10])
+          root (index-node [5] [data1 data2])]
       (is (= (lookup-fwd-iter root 4) (range 4 11)))
       (is (= (lookup-fwd-iter root 0) (range 1 11))))))
 
 (def added-keys-appear-in-order
   (prop/for-all [v (gen/vector gen/int)]
                 (let [sorted-set-order (into (sorted-set) v)
-                      b-tree (reduce insert (empty-b-tree) v)
+                      b-tree (reduce insert (b-tree) v)
                       b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)]
                   (= (seq sorted-set-order) b-tree-order))))
 
@@ -59,7 +59,7 @@
   1000
   (prop/for-all [v (gen/vector gen/int)]
                 (let [sorted-set-order (into (sorted-set) v)
-                      b-tree (reduce insert (empty-b-tree) v)
+                      b-tree (reduce insert (b-tree) v)
                       b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)]
                   (= (seq sorted-set-order) b-tree-order)))) 
 
@@ -69,21 +69,21 @@
                  num gen/nat]
                 (let [set-a (sort the-set)
                       set-b (take num the-set)
-                      b-tree (reduce insert (empty-b-tree) set-a)
+                      b-tree (reduce insert (b-tree) set-a)
                       b-tree-without (reduce delete b-tree set-b)
                       b-tree-order (lookup-fwd-iter b-tree-without Integer/MIN_VALUE)]
                   (= (seq (remove (set set-b) set-a)) b-tree-order))))
 
 (deftest insert-test
-  (let [data1 (->DataNode [1 2 3 4])
-        root (->IndexNode [] [data1])]
+  (let [data1 (data-node [1 2 3 4])
+        root (index-node [] [data1])]
     (is (= (lookup-fwd-iter (insert root 3) -10) [1 2 3 4]))
     (are [x] (= (lookup-fwd-iter (insert root x) -10) (sort (conj [1 2 3 4] x)))
          0
          2.5
          5))
-  (let [data1 (->DataNode [1 2 3 4 5])
-        root (->IndexNode [] [data1])]
+  (let [data1 (data-node [1 2 3 4 5])
+        root (index-node [] [data1])]
     (are [x y] (= (lookup-fwd-iter (insert root x) y)
                   (drop-while
                     #(< % y)
@@ -93,11 +93,11 @@
          5.5 3)))
 
 (deftest simple-delete-tests
-  (let [tree (reduce insert (empty-b-tree) (range 5))]
+  (let [tree (reduce insert (b-tree) (range 5))]
     (is (= (lookup-fwd-iter (delete tree 3) 0) [0 1 2 4])))
-  (let [tree (reduce insert (empty-b-tree) (range 10))]
+  (let [tree (reduce insert (b-tree) (range 10))]
     (is (= (lookup-fwd-iter (delete tree 0) 0) (map inc (range 9)))))
-  (let [tree (reduce insert (empty-b-tree) (range 6))]
+  (let [tree (reduce insert (b-tree) (range 6))]
     (is (= (lookup-fwd-iter (delete tree 0) 0) (map inc (range 5))))))
 
 (defn check-node-is-balanced
@@ -107,7 +107,7 @@
   ([node]
    (or
      ;; First case: it's just a datanode
-     (and (instance? tree.core.DataNode node)
+     (and (data-node? node)
           (< (count (:children node)) (* 2 b)))
      ;; Second case: it's an index
      (let [acc (atom [])] ; acc is for ensuring all leaves are the same depth
@@ -115,7 +115,7 @@
             (apply = @acc)))))
   ([{:keys [children] :as node} acc min height]
    (if (<= min (count children) (dec (* 2 b))) ;between min (inc) & max (exc)
-     (if-not (instance? tree.core.DataNode node)
+     (if-not (data-node? node)
        (every? #(check-node-is-balanced % acc b (inc height)) children)
        (do
          (swap! acc conj height)
@@ -125,7 +125,7 @@
 (defspec test-balanced-after-many-inserts
   1000
   (prop/for-all [the-set (gen/vector (gen/no-shrink gen/int))]
-                (let [b-tree (reduce insert (empty-b-tree) the-set)]
+                (let [b-tree (reduce insert (b-tree) the-set)]
                   (check-node-is-balanced b-tree))))
 
 (defn mixed-op-seq
@@ -145,7 +145,7 @@
                                            (condp = op
                                              :add (insert t x-reduced)
                                              :del (insert t x-reduced))))
-                                       (empty-b-tree)
+                                       (b-tree)
                                        ops)]
   ;                  (println ops)
                     (check-node-is-balanced b-tree)))))
