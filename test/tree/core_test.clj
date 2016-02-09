@@ -100,4 +100,67 @@
   (let [tree (reduce insert (empty-b-tree) (range 6))]
     (is (= (lookup-fwd-iter (delete tree 0) 0) (map inc (range 5))))))
 
-;;TODO make structure-verification tests that run a bunch of ops, then confirm the tree still looks OK--data and index nodes should have the right # of elements, with perfect balance on the tree
+(defn check-node-is-balanced
+  "Given a node, checks that it's balanced.
+   All children must have b to 2b-1 children.
+   The intent is to feed this a root node, which will have 2 as the min"
+  ([node]
+   (or
+     ;; First case: it's just a datanode
+     (and (instance? tree.core.DataNode node)
+          (< (count (:children node)) (* 2 b)))
+     ;; Second case: it's an index
+     (let [acc (atom [])] ; acc is for ensuring all leaves are the same depth
+       (and (check-node-is-balanced node acc 2 0)
+            (apply = @acc)))))
+  ([{:keys [children] :as node} acc min height]
+   (if (<= min (count children) (dec (* 2 b))) ;between min (inc) & max (exc)
+     (if-not (instance? tree.core.DataNode node)
+       (every? #(check-node-is-balanced % acc b (inc height)) children)
+       (do
+         (swap! acc conj height)
+         true))
+     false)))
+
+(defspec test-balanced-after-many-inserts
+  1000
+  (prop/for-all [the-set (gen/vector (gen/no-shrink gen/int))]
+                (let [b-tree (reduce insert (empty-b-tree) the-set)]
+                  (check-node-is-balanced b-tree))))
+
+(defn mixed-op-seq
+  "Returns a property that ensures trees produced by a sequence of adds and deletes
+   in the given ratio, with universe-size distinct values"
+  [add-vs-del-ratio universe-size num-ops]
+  (let [add-freq (long (* 1000 add-vs-del-ratio))
+        del-freq (long (* 1000 (- 1 add-vs-del-ratio)))]
+    (prop/for-all [ops (gen/vector (gen/frequency
+                                     [[add-freq (gen/tuple (gen/return :add)
+                                                           (gen/no-shrink gen/int))]
+                                      [del-freq (gen/tuple (gen/return :del)
+                                                           (gen/no-shrink gen/int))]])
+                                   num-ops)]
+                  (let [b-tree (reduce (fn [t [op x]]
+                                         (let [x-reduced (mod x universe-size)]
+                                           (condp = op
+                                             :add (insert t x-reduced)
+                                             :del (insert t x-reduced))))
+                                       (empty-b-tree)
+                                       ops)]
+  ;                  (println ops)
+                    (check-node-is-balanced b-tree)))))
+
+(defspec test-few-keys-many-ops
+  50
+  (mixed-op-seq 0.5 250 5000))
+
+(defspec test-many-keys-bigger-trees
+  1000
+  (mixed-op-seq 0.8 1000 1000))
+
+(defspec test-sparse-ops
+  1000
+  (mixed-op-seq 0.7 100000 1000))
+
+(comment
+  (time (tc/quick-check 1 (mixed-op-seq 0.5 100 1000))))
