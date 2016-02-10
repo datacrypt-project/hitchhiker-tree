@@ -142,10 +142,17 @@
   [node writer]
   (print-index-node node writer true))
 
+(defn node-status-bits
+  [node]
+  (str "["
+       (if (dirty? node) "D" " ")
+       "]"))
+
 (defmethod pp/simple-dispatch IndexNode
   [node]
   (let [out ^Writer *out*]
     (.write out "IndexNode")
+    (.write out (node-status-bits node))
     (pp/pprint-logical-block
       :prefix "{" :suffix "}"
       (pp/pprint-logical-block
@@ -191,7 +198,7 @@
   (instance? DataNode node))
 
 ;(println (b-tree :foo :bar :baz))
-;(pp/pprint (b-tree :foo :bar :baz))
+;(pp/pprint (apply b-tree (range 100)))
 (defn print-data-node
   [node ^Writer writer fully-qualified?]
   (.write writer (if fully-qualified?
@@ -209,7 +216,10 @@
 
 (defmethod pp/simple-dispatch DataNode
   [node]
-  (print-data-node node *out* false))
+  (let [out ^Writer *out*]
+    (.write out (str "DataNode"
+                     (node-status-bits node)))
+    (.write out (str {:children (:children node)}))))
 
 (defn backtrack-up-path-until
   "Given a path (starting with root and ending with an index), searches backwards,
@@ -414,6 +424,28 @@
   (last-key [_] last-key)
   (resolve [_] node))
 
+(defn print-testing-addr
+  [node ^Writer writer fully-qualified?]
+  (.write writer (if fully-qualified?
+                   (pr-str TestingAddr)
+                   "TestingAddr"))
+  (.write writer (str {})))
+
+(defmethod print-method TestingAddr
+  [node writer]
+  (print-testing-addr node writer false))
+
+(defmethod print-dup TestingAddr
+  [node writer]
+  (print-testing-addr node writer true))
+
+(defmethod pp/simple-dispatch TestingAddr
+  [node]
+  (let [out ^Writer *out*]
+    (.write out (str "TestingAddr"
+                     (node-status-bits node)))
+    (.write out (str {}))))
+
 ;;TODO make this a loop/recur instead of mutual recursion
 (declare flush-tree)
 
@@ -443,16 +475,33 @@
            cleaned-node (assoc tree :children cleaned-children)
            new-addr (->TestingAddr (last-key tree) cleaned-node)]
        (deliver (:storage-addr tree) new-addr)
+       (when (not= new-addr @(:storage-addr tree))
+         ;;here's where we'd rollback a write
+         )
        {:tree new-addr :stats (update-in stats [:writes] inc)})
      {:tree tree :stats stats})))
+
+;; The parts of the serialization system that seem like they're need hooks are:
+;; - Must provide a function that takes a node, serializes it, and returns an addr
+;; - Must be able to rollback writing an addr
+;; - Whatever the addr it returns, it should cache its resolve in-mem somehow
+;; - The serialize a node & rollback a node functions should accept a "stats" object as well
+;; - The "stats" object must be convertible to a summary or whatever at the end
+
+;; could make a redis backend using refcounting for nodes :)
 
 (comment
   (clojure.pprint/pprint (apply b-tree (range 30)))
 
-  (let [t (:tree (flush-tree (apply b-tree (range 30))))]
+  (let [t (:tree (flush-tree (apply b-tree (range 30))))
+        t' (reduce insert t [-7 100])]
     (assert (= 0 (:writes (:stats (flush-tree t)))))
     (assert (= (range 30) (lookup-fwd-iter t -1)))
-    (:stats (flush-tree (insert t -7)))
+    (pp/pprint t)
+    (pp/pprint (insert t -7))
+    (pp/pprint t')
+    (pp/pprint (flush-tree t'))
+    (pp/pprint t')
     )
 
 
