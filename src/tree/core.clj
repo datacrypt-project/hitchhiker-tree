@@ -2,7 +2,8 @@
   (:refer-clojure :exclude [compare resolve subvec])
   (:require [clojure.core.rrb-vector :refer (catvec subvec)]
             [clojure.pprint :as pp])
-  (:import java.io.Writer))
+  (:import java.io.Writer
+           java.util.Collections))
 
 (def b 3)
 
@@ -89,7 +90,7 @@
 
 (declare index-node data-node)
 
-(defrecord IndexNode [keys children storage-addr]
+(defrecord IndexNode [keys children storage-addr op-buf]
   IResolve
   (dirty? [this] (not (realized? storage-addr)))
   (resolve [this] this) ;;TODO this is a hack for testing
@@ -102,16 +103,28 @@
   (underflow? [this]
     (< (count children) b))
   (split-node [this]
-    (->Split (index-node (subvec keys 0 (dec b))
-                          (subvec children 0 b))
-             (index-node (subvec keys b)
-                          (subvec children b))
-             (nth keys (dec b))))
+    (let [median (nth keys (dec b))]
+      (loop [[op & op-buf] op-buf
+             left-buf []
+             right-buf []]
+        (if op
+          (if (<= (:key op) median)
+            (recur op-buf (conj left-buf op) right-buf)
+            (recur op-buf left-buf (conj right-buf op)))
+          (->Split (->IndexNode (subvec keys 0 (dec b))
+                                (subvec children 0 b)
+                                (promise)
+                                left-buf)
+                   (->IndexNode (subvec keys b)
+                                (subvec children b)
+                                (promise)
+                                right-buf)
+                   median)))))
   (merge-node [this other]
     (index-node (catvec (conj keys (last-key (peek children))) (:keys other))
-                 (catvec children (:children other))))
+                (catvec children (:children other))))
   (lookup [root key]
-    (let [x (java.util.Collections/binarySearch keys key compare)]
+    (let [x (Collections/binarySearch keys key compare)]
       (if (neg? x)
         (- (inc x))
         x))))
@@ -119,7 +132,7 @@
 (defn index-node
   "Creates a new index node"
   [keys children]
-  (->IndexNode keys children (promise)))
+  (->IndexNode keys children (promise) []))
 
 (defn index-node?
   [node]
@@ -160,6 +173,10 @@
         (pp/write-out (:keys node))
         (pp/pprint-newline :linear))
       (pp/pprint-logical-block
+        (.write out ":op-buf ")
+        (pp/write-out (:op-buf node))
+        (pp/pprint-newline :linear))
+      (pp/pprint-logical-block
         (.write out ":children ")
         (pp/pprint-newline :mandatory)
         (pp/write-out (:children node))))))
@@ -183,7 +200,7 @@
   (merge-node [this other]
     (data-node (catvec children (:children other))))
   (lookup [root key]
-    (let [x (java.util.Collections/binarySearch children key compare)]
+    (let [x (Collections/binarySearch children key compare)]
       (if (neg? x)
         (- (inc x))
         x))))
@@ -320,7 +337,7 @@
    except that we have rrb-trees, so it's O(lg(n))
    instead :)"
   [v key]
-  (let [index (java.util.Collections/binarySearch v key compare)]
+  (let [index (Collections/binarySearch v key compare)]
     (if (neg? index)
       (let [index (- (inc index))]
         (if (= (count v) index)
@@ -334,7 +351,7 @@
 
 (defn -deletion-from-sorted-vector
   [v key]
-  (let [index (java.util.Collections/binarySearch v key compare)]
+  (let [index (Collections/binarySearch v key compare)]
     (cond
       (neg? index) v ; not found, do nothing
       (zero? index) (subvec v 1) ; if first, no need to concat
@@ -351,7 +368,7 @@
       (if (empty? path)
         (if (overflow? node)
           (let [{:keys [left right median]} (split-node node)]
-            (index-node [median] [left right]))
+            (->IndexNode [median] [left right] (promise) []))
           node)
         (let [index (peek path)
               {:keys [children keys] :as parent} (peek (pop path))]
@@ -364,8 +381,14 @@
                   new-keys (catvec (conj (subvec keys 0 index)
                                          median)
                                    (subvec keys index))]
-              (recur (index-node new-keys new-children) (pop (pop path))))
-            (recur (index-node keys (assoc children index node))
+              (recur (-> parent
+                         (assoc :keys new-keys
+                                :children new-children)
+                         (dirty!))
+                     (pop (pop path))))
+            (recur (-> parent
+                       (assoc :children (assoc children index node))
+                       (dirty!))
                    (pop (pop path)))))))))
 
 (defn delete
@@ -445,6 +468,12 @@
     (.write out (str "TestingAddr"
                      (node-status-bits node)))
     (.write out (str {}))))
+
+(defn dirty!
+  "Marks a node as being dirty if it was clean"
+  [node]
+  (assert (not (instance? TestingAddr node)))
+  (assoc node :storage-addr (promise)))
 
 ;;TODO make this a loop/recur instead of mutual recursion
 (declare flush-tree)
