@@ -17,8 +17,6 @@
   (affects-key [op] "Which key this affects--currently must be a single key")
   (apply-op [op tree] "Applies the operation to the tree"))
 
-(declare insert delete)
-
 (defrecord InsertOp [key]
   IOperation
   (affects-key [_] key)
@@ -70,7 +68,7 @@
                      [(subvec msgs 0 negative-binsearch-result) ;not found, exclusive
                       (subvec msgs negative-binsearch-result)]
                      [(subvec msgs 0 (inc binsearch-result)) ;found, inclusive
-                      (subvec (inc binsearch-result))])
+                      (subvec msgs (inc binsearch-result))])
 
                    on-the-last-child? (empty? children)
 
@@ -96,8 +94,34 @@
                  (recur children (conj rebuilt-children new-child) extra-msgs)))))))))
 
 (defn insert
-  (tree key)
+  [tree key]
   (enqueue tree [(->InsertOp key)]))
+
+(comment
+  (defn trial
+    []
+    (let [tree (-> (apply core/b-tree (range 10000))
+                (core/flush-tree)
+                :tree)
+          new-keys (repeatedly 30 #(- (rand-int 1000) 500))
+          reg (-> (reduce core/insert tree new-keys)
+                  (core/flush-tree)
+                  :stats
+                  :writes)
+          op-bufs (-> (reduce insert tree new-keys)
+                      (core/flush-tree)
+                      :stats
+                      :writes)]
+      (float (/ op-bufs reg))))
+
+
+  (let [trials (sort (repeatedly 100 trial))]
+    (println "avg" (/ (apply + trials) (count trials)))
+    (doseq [quantile [0 24 49 74 99]]
+      (println "Quantile" quantile "was" (nth trials quantile))
+      )
+    )
+  )
 
 (clojure.pprint/pprint
   (-> (apply core/b-tree (range 30))
