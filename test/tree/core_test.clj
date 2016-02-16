@@ -12,7 +12,7 @@
   (testing "Basic searches"
     (let [data1 (data-node [1 2 3 4 5])
           data2 (data-node [6 7 8 9 10])
-          root (index-node [5] [data1 data2])]
+          root (->IndexNode [5] [data1 data2] (promise) [])]
       (is (= (lookup-key root -10) 1) "first key must be LEQ than search key to go past the first elt")
       (is (= (lookup-key root 100) 10) "last key is still LEQ than search key")
       (dotimes [i 10]
@@ -20,7 +20,7 @@
   (testing "basic fwd iterator"
     (let [data1 (data-node [1 2 3 4 5])
           data2 (data-node [6 7 8 9 10])
-          root (index-node [5] [data1 data2])]
+          root (->IndexNode [5] [data1 data2] (promise) [])]
       (is (= (lookup-fwd-iter root 4) (range 4 11)))
       (is (= (lookup-fwd-iter root 0) (range 1 11))))))
 
@@ -76,14 +76,14 @@
 
 (deftest insert-test
   (let [data1 (data-node [1 2 3 4])
-        root (index-node [] [data1])]
+        root (->IndexNode [] [data1] (promise) [])]
     (is (= (lookup-fwd-iter (insert root 3) -10) [1 2 3 4]))
     (are [x] (= (lookup-fwd-iter (insert root x) -10) (sort (conj [1 2 3 4] x)))
          0
          2.5
          5))
   (let [data1 (data-node [1 2 3 4 5])
-        root (index-node [] [data1])]
+        root (->IndexNode [] [data1] (promise) [])]
     (are [x y] (= (lookup-fwd-iter (insert root x) y)
                   (drop-while
                     #(< % y)
@@ -144,7 +144,7 @@
                                          (let [x-reduced (mod x universe-size)]
                                            (condp = op
                                              :add (insert t x-reduced)
-                                             :del (insert t x-reduced))))
+                                             :del (delete t x-reduced))))
                                        (b-tree)
                                        ops)]
   ;                  (println ops)

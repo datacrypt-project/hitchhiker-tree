@@ -1,6 +1,7 @@
 (ns tree.messaging
   (:refer-clojure :exclude [subvec])
   (:require [tree.core :as core]
+            [clojure.pprint :as pp] 
             [clojure.core.rrb-vector :refer (catvec subvec)])
   (:import java.io.Writer
            java.util.Collections)) 
@@ -30,6 +31,36 @@
   (apply-op-to-vector [_ v] (core/-deletion-from-sorted-vector v key))
   (apply-op-to-tree [_ tree] (core/delete tree key)))
 
+(defmethod print-method InsertOp
+  [op ^Writer writer]
+  (.write writer "InsertOp")
+  (.write writer (str {:key (:key op)})))
+
+(defmethod print-dup InsertOp
+  [op ^Writer writer]
+  (.write writer "(tree.messaging/->InsertOp ")
+  (.write writer (pr-str (:key op)))
+  (.write writer ")"))
+
+(defmethod pp/simple-dispatch InsertOp
+  [op]
+  (print op))
+
+(defmethod print-method DeleteOp
+  [op ^Writer writer]
+  (.write writer "DeleteOp")
+  (.write writer (str {:key (:key op)})))
+
+(defmethod print-dup DeleteOp
+  [op ^Writer writer]
+  (.write writer "(tree.messaging/->DeleteOp ")
+  (.write writer (pr-str (:key op)))
+  (.write writer ")"))
+
+(defmethod pp/simple-dispatch DeleteOp
+  [op]
+  (print op))
+
 (defn enqueue
   "When enqueing "
   ([tree msgs]
@@ -54,7 +85,7 @@
            (loop [[child & children] (:children tree)
                   rebuilt-children []
                   msgs (vec (sort-by affects-key ;must be a stable sort 
-                                     (concat msgs (:op-buf tree))))]
+                                     (concat (:op-buf tree) msgs)))]
              (let [;; Do a binary search to which msgs belong child
                    ;; and which msgs belong to the next child
                    binsearch-result
@@ -184,63 +215,76 @@
    
    TODO We could reduce this to only do ops of interest"
   [path]
-  (let [ops (->> path
-                 (into [] (comp (filter core/index-node?)
-                                (map :op-buf)))
-                 (rseq) ; highest node should be last in seq
-                 (apply catvec)
-                 (sort-by affects-key)) ;must be a stable sort
-        this-node-index (-> path pop peek)
-        parent (-> path pop pop peek)
-        is-first? (zero? this-node-index)
-        ;;We'll need to find the smallest last-key of the left siblings along the path
-        [left-sibs-on-path is-last?]
-        (loop [path path
-               is-last? true
-               left-sibs []]
-          (if (= 1 (count path)) ; are we at the root?
-            [left-sibs is-last?]
-            (let [this-node-index (-> path pop peek)
-                  parent (-> path pop pop peek)
-                  is-first? (zero? this-node-index)
-                  local-last? (= (-> parent :children count dec)
+  (if (= 1 (count path))
+    (:children (peek path))
+    (let [ops (->> path
+                   (into [] (comp (filter core/index-node?)
+                                  (map :op-buf)))
+                   (rseq) ; highest node should be last in seq
+                   (apply catvec)
+                   (sort-by affects-key)) ;must be a stable sort
+          this-node-index (-> path pop peek)
+          parent (-> path pop pop peek)
+          is-first? (zero? this-node-index)
+          ;;We'll need to find the smallest last-key of the left siblings along the path
+          [left-sibs-on-path is-last?]
+          (loop [path path
+                 is-last? true
+                 left-sibs []]
+            (if (= 1 (count path)) ; are we at the root?
+              [left-sibs is-last?]
+              (let [this-node-index (-> path pop peek)
+                    parent (-> path pop pop peek)
+                    is-first? (zero? this-node-index)
+                    local-last? (= (-> parent :children count dec)
                                    this-node-index)]
-              (if is-first?
-                (recur (pop (pop path)) (and is-last? local-last?) left-sibs)
-                (recur (pop (pop path))
-                       (and is-last? local-last?)
-                       (conj left-sibs
-                             (nth (:children parent)
-                                  (dec this-node-index))))))))
-        left-sibs-min-last (when (seq left-sibs-on-path)
-                             (->> left-sibs-on-path
-                                  (map core/last-key)
-                                  (apply max)))
-        left-sib-filter (if left-sibs-min-last
-                          (drop-while #(>= 0 (core/compare (affects-key %)
-                                                           left-sibs-min-last)))
-                          identity)
-        data-node (peek path) 
-        my-last (core/last-key data-node)
-        right-side-filter (if is-last?
-                            identity
-                            (take-while #(>= 0 (core/compare (affects-key %) my-last))))
-        correct-ops (into [] (comp left-sib-filter right-side-filter) ops)
+                (if is-first?
+                  (recur (pop (pop path)) (and is-last? local-last?) left-sibs)
+                  (recur (pop (pop path))
+                         (and is-last? local-last?)
+                         (conj left-sibs
+                               (nth (:children parent)
+                                    (dec this-node-index))))))))
+          left-sibs-min-last (when (seq left-sibs-on-path)
+                               (->> left-sibs-on-path
+                                    (map core/last-key)
+                                    (apply max)))
+          left-sib-filter (if left-sibs-min-last
+                            (drop-while #(>= 0 (core/compare (affects-key %)
+                                                             left-sibs-min-last)))
+                            identity)
+          data-node (peek path) 
+          my-last (core/last-key data-node)
+          right-side-filter (if is-last?
+                              identity
+                              (take-while #(>= 0 (core/compare (affects-key %) my-last))))
+          correct-ops (into [] (comp left-sib-filter right-side-filter) ops)
 
-        ;;We include op if leq my left, and not if leq left's left
-        ;;TODO we can't apply all ops, we should ensure to only apply ops whose keys are in the defined range, unless we're the last sibling
-        ]
-   ; (println "left-sibs-min-last" left-sibs-min-last)
-   ; (println "is-last?" is-last?)
-   ; (println "expanding data node" data-node "with ops" correct-ops)
-    (reduce (fn [v op]
-              (apply-op-to-vector op v))
-            (:children data-node)
-            correct-ops)))
+          ;;We include op if leq my left, and not if leq left's left
+          ;;TODO we can't apply all ops, we should ensure to only apply ops whose keys are in the defined range, unless we're the last sibling
+          ]
+      ; (println "left-sibs-min-last" left-sibs-min-last)
+      ; (println "is-last?" is-last?)
+      ; (println "expanding data node" data-node "with ops" correct-ops)
+      (reduce (fn [v op]
+                (apply-op-to-vector op v))
+              (:children data-node)
+              correct-ops))))
+
+#_(clojure.pprint/pprint
+  (-> (core/insert (apply core/b-tree (range 30)) -1)
+  ;    (core/flush-tree) :tree
+      (enqueue [(->DeleteOp 0)])  
+      (enqueue [(->DeleteOp -2)])  
+      (enqueue [(->DeleteOp 50)])  
+      ;(enqueue [(->DeleteOp -4)])  
+      ;(enqueue [(->DeleteOp -5)]) ; tree is totally filled up here
+  ;    (enqueue [(->InsertOp -8)])
+      ))
 
 #_(clojure.pprint/pprint
   (-> (core/insert (apply core/b-tree (range 6)) -1)
-      (core/flush-tree) :tree
+  ;    (core/flush-tree) :tree
       (enqueue [(->InsertOp -1)])  
       (enqueue [(->InsertOp -2)])  
       (enqueue [(->InsertOp 50)])  
@@ -259,6 +303,14 @@
     (when-not (neg? i)
       (nth expanded i))))
 
+(defn insert
+  [tree key]
+  (enqueue tree [(->InsertOp key)]))
+
+(defn delete
+  [tree key]
+  (enqueue tree [(->DeleteOp key)]))
+
 (comment
   (def my-tree (-> (apply core/b-tree (range 30))
       (core/flush-tree) :tree
@@ -270,7 +322,7 @@
   ;    (enqueue [(->InsertOp -8)])
       )) 
   (do (clojure.pprint/pprint my-tree)
-  (lookup-fwd-iter my-tree -100))
+      (lookup-fwd-iter my-tree -100))
   (lookup my-tree 50))
 
 (defn forward-iterator

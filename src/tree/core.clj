@@ -88,7 +88,7 @@
 ;; TODO we should be able to find all uncommited data by searching for
 ;; resolved & unresolved children
 
-(declare index-node data-node)
+(declare data-node dirty!)
 
 (defrecord IndexNode [keys children storage-addr op-buf]
   IResolve
@@ -103,36 +103,29 @@
   (underflow? [this]
     (< (count children) b))
   (split-node [this]
-    (let [median (nth keys (dec b))]
-      (loop [[op & op-buf] op-buf
-             left-buf []
-             right-buf []]
-        (if op
-          (if (<= (:key op) median)
-            (recur op-buf (conj left-buf op) right-buf)
-            (recur op-buf left-buf (conj right-buf op)))
-          (->Split (->IndexNode (subvec keys 0 (dec b))
-                                (subvec children 0 b)
-                                (promise)
-                                left-buf)
-                   (->IndexNode (subvec keys b)
-                                (subvec children b)
-                                (promise)
-                                right-buf)
-                   median)))))
+    (let [median (nth keys (dec b))
+          [left-buf right-buf] (split-with #(not (pos? (compare (:key %) median)))
+                                           ;;TODO this should use msg/affects-key
+                                           (sort-by :key op-buf))]
+      (->Split (->IndexNode (subvec keys 0 (dec b))
+                            (subvec children 0 b)
+                            (promise)
+                            (vec left-buf))
+               (->IndexNode (subvec keys b)
+                            (subvec children b)
+                            (promise)
+                            (vec right-buf))
+               median)))
   (merge-node [this other]
-    (index-node (catvec (conj keys (last-key (peek children))) (:keys other))
-                (catvec children (:children other))))
+    (->IndexNode (catvec (conj keys (last-key (peek children))) (:keys other))
+                 (catvec children (:children other))
+                 (promise)
+                 (catvec op-buf (:op-buf other))))
   (lookup [root key]
     (let [x (Collections/binarySearch keys key compare)]
       (if (neg? x)
         (- (inc x))
         x))))
-
-(defn index-node
-  "Creates a new index node"
-  [keys children]
-  (->IndexNode keys children (promise) []))
 
 (defn index-node?
   [node]
@@ -391,6 +384,9 @@
                        (dirty!))
                    (pop (pop path)))))))))
 
+;;TODO: cool optimization: when merging children, push as many operations as you can
+;;into them to opportunisitcally minimize overall IO costs
+
 (defn delete
   [tree key]
   (let [path (pop (pop (lookup-path tree key))) ; don't care about the found key or its index
@@ -404,7 +400,7 @@
           (first (:children node))
           node)
         (let [index (peek path)
-              {:keys [children keys] :as parent} (peek (pop path))]
+              {:keys [children keys op-buf] :as parent} (peek (pop path))]
           (if (underflow? node) ; splice the split into the parent
             ;;TODO this needs to use a polymorphic sibling-count to work on serialized nodes
             (let [bigger-sibling-idx
@@ -425,16 +421,23 @@
                   old-right-keys (subvec keys (max index bigger-sibling-idx))]
               (if (overflow? merged)
                 (let [{:keys [left right median]} (split-node merged)]
-                  (recur (index-node (catvec (conj old-left-keys median)
+                  (recur (->IndexNode (catvec (conj old-left-keys median)
                                               old-right-keys)
                                       (catvec (conj old-left-children left right)
-                                              old-right-children))
+                                              old-right-children)
+                                      (promise)
+                                      op-buf)
                          (pop (pop path))))
-                (recur (index-node (catvec old-left-keys old-right-keys)
+                (recur (->IndexNode (catvec old-left-keys old-right-keys)
                                     (catvec (conj old-left-children merged)
-                                            old-right-children))
+                                            old-right-children)
+                                    (promise)
+                                    op-buf)
                        (pop (pop path)))))
-            (recur (index-node keys (assoc children index node))
+            (recur (->IndexNode keys
+                                (assoc children index node)
+                                (promise)
+                                op-buf)
                    (pop (pop path)))))))))
 
 (defn b-tree
