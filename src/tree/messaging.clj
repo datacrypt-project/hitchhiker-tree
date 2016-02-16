@@ -6,8 +6,6 @@
   (:import java.io.Writer
            java.util.Collections)) 
 
-(def op-buf-size 2)
-
 ;; An operation is an object with a few functions
 ;; 1. It has a function that it applies to the tree to apply its effect
 ;; In the future, it could also have
@@ -76,7 +74,8 @@
        (core/data-node? tree) ; need to return ops to apply to the tree proper...
        (do (swap! deferred-ops into msgs)
            tree)
-       (<= (+ (count msgs) (count (:op-buf tree))) op-buf-size) ; will there be enough space
+       (<= (+ (count msgs) (count (:op-buf tree)))
+           (get-in tree [:cfg :op-buf-size])) ; will there be enough space?
        (-> tree
            (core/dirty!)
            (update-in [:op-buf] into msgs))

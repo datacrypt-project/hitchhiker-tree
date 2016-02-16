@@ -5,7 +5,7 @@
   (:import java.io.Writer
            java.util.Collections))
 
-(def b 3)
+(defrecord Config [b op-buf-size])
 
 (defprotocol IKeyCompare
   (compare [key1 key2]))
@@ -90,7 +90,7 @@
 
 (declare data-node dirty!)
 
-(defrecord IndexNode [keys children storage-addr op-buf]
+(defrecord IndexNode [keys children storage-addr op-buf cfg]
   IResolve
   (dirty? [this] (not (realized? storage-addr)))
   (resolve [this] this) ;;TODO this is a hack for testing
@@ -99,28 +99,32 @@
     (last-key (peek children)))
   INode
   (overflow? [this]
-    (>= (count children) (* 2 b)))
+    (>= (count children) (* 2 (:b cfg))))
   (underflow? [this]
-    (< (count children) b))
+    (< (count children) (:b cfg)))
   (split-node [this]
-    (let [median (nth keys (dec b))
+    (let [b (:b cfg)
+          median (nth keys (dec b))
           [left-buf right-buf] (split-with #(not (pos? (compare (:key %) median)))
                                            ;;TODO this should use msg/affects-key
                                            (sort-by :key op-buf))]
       (->Split (->IndexNode (subvec keys 0 (dec b))
                             (subvec children 0 b)
                             (promise)
-                            (vec left-buf))
+                            (vec left-buf)
+                            cfg)
                (->IndexNode (subvec keys b)
                             (subvec children b)
                             (promise)
-                            (vec right-buf))
+                            (vec right-buf)
+                            cfg)
                median)))
   (merge-node [this other]
     (->IndexNode (catvec (conj keys (last-key (peek children))) (:keys other))
                  (catvec children (:children other))
                  (promise)
-                 (catvec op-buf (:op-buf other))))
+                 (catvec op-buf (:op-buf other))
+                 cfg))
   (lookup [root key]
     (let [x (Collections/binarySearch keys key compare)]
       (if (neg? x)
@@ -174,7 +178,7 @@
         (pp/pprint-newline :mandatory)
         (pp/write-out (:children node))))))
 
-(defrecord DataNode [children storage-addr]
+(defrecord DataNode [children storage-addr cfg]
   IResolve
   (resolve [this] this) ;;TODO this is a hack for testing
   (dirty? [this] (not (realized? storage-addr)))
@@ -183,15 +187,15 @@
   INode
   ;; Should have between b & 2b-1 children
   (overflow? [this]
-    (>= (count children) (* 2 b)))
+    (>= (count children) (* 2 (:b cfg))))
   (underflow? [this]
-    (< (count children) b))
+    (< (count children) (:b cfg)))
   (split-node [this]
-    (->Split (data-node (subvec children 0 b))
-             (data-node (subvec children b))
-             (nth children (dec b))))
+    (->Split (data-node cfg (subvec children 0 (:b cfg)))
+             (data-node cfg (subvec children (:b cfg)))
+             (nth children (dec (:b cfg)))))
   (merge-node [this other]
-    (data-node (catvec children (:children other))))
+    (data-node cfg (catvec children (:children other))))
   (lookup [root key]
     (let [x (Collections/binarySearch children key compare)]
       (if (neg? x)
@@ -200,8 +204,8 @@
 
 (defn data-node
   "Creates a new data node"
-  [children]
-  (->DataNode children (promise)))
+  [cfg children]
+  (->DataNode children (promise) cfg))
 
 (defn data-node?
   [node]
@@ -352,16 +356,16 @@
       :else (catvec (subvec v 0 index) (subvec v (inc index))))))
 
 (defn insert
-  [tree key]
+  [{:keys [cfg] :as tree} key]
   (let [path (pop (pop (lookup-path tree key))) ; don't care about the found key or its index
         {:keys [children] :or {children []}} (peek path)
-        updated-data-node (data-node (-insertion-into-sorted-vector children key))]
+        updated-data-node (data-node cfg (-insertion-into-sorted-vector children key))]
     (loop [node updated-data-node
            path (pop path)]
       (if (empty? path)
         (if (overflow? node)
           (let [{:keys [left right median]} (split-node node)]
-            (->IndexNode [median] [left right] (promise) []))
+            (->IndexNode [median] [left right] (promise) [] cfg))
           node)
         (let [index (peek path)
               {:keys [children keys] :as parent} (peek (pop path))]
@@ -388,10 +392,10 @@
 ;;into them to opportunisitcally minimize overall IO costs
 
 (defn delete
-  [tree key]
+  [{:keys [cfg] :as tree} key]
   (let [path (pop (pop (lookup-path tree key))) ; don't care about the found key or its index
         {:keys [children] :or {children []}} (peek path)
-        updated-data-node (data-node (-deletion-from-sorted-vector children key))]
+        updated-data-node (data-node cfg (-deletion-from-sorted-vector children key))]
     (loop [node updated-data-node
            path (pop path)]
       (if (empty? path)
@@ -426,23 +430,26 @@
                                       (catvec (conj old-left-children left right)
                                               old-right-children)
                                       (promise)
-                                      op-buf)
+                                      op-buf
+                                      cfg)
                          (pop (pop path))))
                 (recur (->IndexNode (catvec old-left-keys old-right-keys)
                                     (catvec (conj old-left-children merged)
                                             old-right-children)
                                     (promise)
-                                    op-buf)
+                                    op-buf
+                                    cfg)
                        (pop (pop path)))))
             (recur (->IndexNode keys
                                 (assoc children index node)
                                 (promise)
-                                op-buf)
+                                op-buf
+                                cfg)
                    (pop (pop path)))))))))
 
 (defn b-tree
-  [& keys]
-  (reduce insert (data-node []) keys))
+  [cfg & keys]
+  (reduce insert (data-node cfg []) keys))
 
 (defrecord TestingAddr [last-key node]
   IResolve
@@ -482,36 +489,43 @@
 (declare flush-tree)
 
 (defn flush-children
-  [stats children]
-  (reduce (fn [{:keys [children stats]} child]
-            (let [{:keys [tree] sub-stats :stats} (flush-tree child stats)]
-              {:children (conj children tree)
-               :stats sub-stats}))
-          {:children [] :stats stats}
-          children))
+  [children backend session]
+  (mapv #(flush-tree % backend session) children))
+
+(defprotocol IBackend
+  (new-session [backend] "Returns a session object that will collect stats")
+  (write-node [backend node session] "Writes the given node to storage, returning its assigned address")
+  (delete-addr [backend addr session] "Deletes the given addr from storage"))
+
+(defrecord TestingBackend []
+  IBackend
+  (new-session [_] (atom {:writes 0}))
+  (write-node [_ node session]
+    (swap! session update-in [:writes] inc)
+    (->TestingAddr (last-key node) node))
+  (delete-addr [_ addr session ]))
 
 (defn flush-tree
   "Given the tree, finds all dirty nodes, delivering addrs into them.
    Every dirty node also gets replaced with its TestingAddr.
    These form a GC cycle, have fun with the unmanaged memory port :)"
-  ([tree]
-   (-> (flush-tree tree {:writes 0})
-       (update-in [:tree] resolve))) ; root should never be flushed
-  ([tree stats]
+  ([tree backend]
+   (let [session (new-session backend)
+         flushed (flush-tree tree backend session)]
+       {:tree (resolve flushed) ; root should never be unresolved for API 
+        :stats session}))
+  ([tree backend stats]
    (if (dirty? tree)
-     (let [{cleaned-children :children
-            stats            :stats} (if (data-node? tree)
-                                       {:children (:children tree)
-                                        :stats stats}
-                                       (flush-children stats (:children tree)))
+     (let [cleaned-children (if (data-node? tree)
+                              (:children tree)
+                              (flush-children (:children tree) backend stats))
            cleaned-node (assoc tree :children cleaned-children)
-           new-addr (->TestingAddr (last-key tree) cleaned-node)]
+           new-addr (write-node backend cleaned-node stats)]
        (deliver (:storage-addr tree) new-addr)
        (when (not= new-addr @(:storage-addr tree))
-         ;;here's where we'd rollback a write
-         )
-       {:tree new-addr :stats (update-in stats [:writes] inc)})
-     {:tree tree :stats stats})))
+         (delete-addr backend new-addr stats))
+       new-addr)
+     tree)))
 
 ;; The parts of the serialization system that seem like they're need hooks are:
 ;; - Must provide a function that takes a node, serializes it, and returns an addr
