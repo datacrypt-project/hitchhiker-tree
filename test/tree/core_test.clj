@@ -164,3 +164,19 @@
 
 (comment
   (time (tc/quick-check 1 (mixed-op-seq 0.5 100 1000))))
+
+(deftest testing-flush-works
+  (:tree (flush-tree (apply b-tree (range 30))))
+  )
+
+(defspec test-flush
+  1000
+  (prop/for-all [v (gen/vector gen/int)]
+                (let [sorted-set-order (into (sorted-set) v)
+                      b-tree (reduce insert (b-tree) v)
+                      b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)
+                      flushed-tree (:tree (flush-tree b-tree))
+                      flushed-tree-order (lookup-fwd-iter flushed-tree Integer/MIN_VALUE)]
+                  (= (seq sorted-set-order)
+                     b-tree-order
+                     flushed-tree-order))))
