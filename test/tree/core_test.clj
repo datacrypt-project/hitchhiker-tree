@@ -129,6 +129,12 @@
                 (let [b-tree (reduce insert (b-tree (->Config 3 2)) the-set)]
                   (check-node-is-balanced b-tree))))
 
+(defspec test-wider-balanced-after-many-inserts
+  1000
+  (prop/for-all [the-set (gen/vector (gen/no-shrink gen/int))]
+                (let [b-tree (reduce insert (b-tree (->Config 200 17)) the-set)]
+                  (check-node-is-balanced b-tree))))
+
 (defn mixed-op-seq
   "Returns a property that ensures trees produced by a sequence of adds and deletes
    in the given ratio, with universe-size distinct values"
