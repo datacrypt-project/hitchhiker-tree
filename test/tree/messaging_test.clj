@@ -12,7 +12,7 @@
   1000
   (prop/for-all [v (gen/vector gen/int)]
                 (let [sorted-set-order (into (sorted-set) v)
-                      b-tree (reduce msg/insert (core/b-tree (core/->Config 3 2)) v)
+                      b-tree (reduce msg/insert (core/b-tree (core/->Config 3 3 2)) v)
                       b-tree-order (msg/lookup-fwd-iter b-tree Integer/MIN_VALUE)]
                   (= (seq sorted-set-order) b-tree-order))))
 
@@ -20,7 +20,7 @@
   1000
   (prop/for-all [v (gen/vector gen/int)]
                 (let [sorted-set-order (into (sorted-set) v)
-                      b-tree (reduce msg/insert (core/b-tree (core/->Config 3 2)) v)
+                      b-tree (reduce msg/insert (core/b-tree (core/->Config 3 3 2)) v)
                       b-tree-order (msg/lookup-fwd-iter b-tree Integer/MIN_VALUE)]
                   (= (seq sorted-set-order) b-tree-order)))) 
 
@@ -30,24 +30,24 @@
                  num gen/nat]
                 (let [set-a (sort the-set)
                       set-b (take num the-set)
-                      b-tree (reduce msg/insert (core/b-tree (core/->Config 3 2)) set-a)
+                      b-tree (reduce msg/insert (core/b-tree (core/->Config 3 3 2)) set-a)
                       b-tree-without (reduce msg/delete b-tree set-b)
                       b-tree-order (msg/lookup-fwd-iter b-tree-without Integer/MIN_VALUE)]
                   (= (seq (remove (set set-b) set-a)) b-tree-order))))
 
 ;(require '[clojure.pprint :refer (pprint)])
-;(pprint (reduce msg/delete (reduce msg/insert (core/b-tree (core/->Config 3 2)) [0 5 2 1 4 -1 3]) [0 5]))
+;(pprint (reduce msg/delete (reduce msg/insert (core/b-tree (core/->Config 3 3 2)) [0 5 2 1 4 -1 3]) [0 5]))
 
 (defspec test-balanced-after-many-inserts
   1000
   (prop/for-all [the-set (gen/vector (gen/no-shrink gen/int))]
-                (let [b-tree (reduce msg/insert (core/b-tree (core/->Config 3 2)) the-set)]
+                (let [b-tree (reduce msg/insert (core/b-tree (core/->Config 3 3 2)) the-set)]
                   (tree.core-test/check-node-is-balanced b-tree))))
 
 (defspec test-wider-balanced-after-many-inserts
   1000
   (prop/for-all [the-set (gen/vector (gen/no-shrink gen/int))]
-                (let [b-tree (reduce msg/insert (core/b-tree (core/->Config 200 17)) the-set)]
+                (let [b-tree (reduce msg/insert (core/b-tree (core/->Config 200 220 17)) the-set)]
                   (tree.core-test/check-node-is-balanced b-tree))))
 
 (defn mixed-op-seq
@@ -67,7 +67,7 @@
                                            (condp = op
                                              :add (msg/insert t x-reduced)
                                              :del (msg/delete t x-reduced))))
-                                       (core/b-tree (core/->Config 3 2))
+                                       (core/b-tree (core/->Config 3 3 2))
                                        ops)]
   ;                  (println ops)
                     (tree.core-test/check-node-is-balanced b-tree)))))

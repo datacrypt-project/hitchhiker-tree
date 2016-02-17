@@ -1,11 +1,12 @@
 (ns tree.core
   (:refer-clojure :exclude [compare resolve subvec])
   (:require [clojure.core.rrb-vector :refer (catvec subvec)]
+            [taoensso.nippy :as nippy]
             [clojure.pprint :as pp])
   (:import java.io.Writer
            java.util.Collections))
 
-(defrecord Config [b op-buf-size])
+(defrecord Config [index-b data-b op-buf-size])
 
 (defprotocol IKeyCompare
   (compare [key1 key2]))
@@ -15,6 +16,7 @@
    necessary to avoid resolving nodes unless strictly necessary."
   (last-key [_] "Returns the rightmost key of the node")
   (dirty? [_] "Returns true if this should be flushed")
+  ;;TODO resolve should be instrumented
   (resolve [_] "Returns the INode version of this; could trigger IO"))
 
 (defn tree-node?
@@ -99,11 +101,11 @@
     (last-key (peek children)))
   INode
   (overflow? [this]
-    (>= (count children) (* 2 (:b cfg))))
+    (>= (count children) (* 2 (:index-b cfg))))
   (underflow? [this]
-    (< (count children) (:b cfg)))
+    (< (count children) (:index-b cfg)))
   (split-node [this]
-    (let [b (:b cfg)
+    (let [b (:index-b cfg)
           median (nth keys (dec b))
           [left-buf right-buf] (split-with #(not (pos? (compare (:key %) median)))
                                            ;;TODO this should use msg/affects-key
@@ -130,6 +132,21 @@
       (if (neg? x)
         (- (inc x))
         x))))
+
+(nippy/extend-freeze IndexNode :b-tree/index-node
+                     [{:keys [storage-addr cfg keys children op-buf]} data-output]
+                     (nippy/freeze-to-out! data-output keys)
+                     (nippy/freeze-to-out! data-output cfg)
+                     (nippy/freeze-to-out! data-output children)
+                     (nippy/freeze-to-out! data-output op-buf))
+
+(nippy/extend-thaw :b-tree/index-node
+                   [data-input]
+                   (let [keys (nippy/thaw-from-in! data-input)
+                         cfg (nippy/thaw-from-in! data-input)
+                         children (nippy/thaw-from-in! data-input)
+                         op-buf (nippy/thaw-from-in! data-input)]
+                     (->IndexNode keys children nil op-buf cfg)))
 
 (defn index-node?
   [node]
@@ -187,13 +204,13 @@
   INode
   ;; Should have between b & 2b-1 children
   (overflow? [this]
-    (>= (count children) (* 2 (:b cfg))))
+    (>= (count children) (* 2 (:data-b cfg))))
   (underflow? [this]
-    (< (count children) (:b cfg)))
+    (< (count children) (:data-b cfg)))
   (split-node [this]
-    (->Split (data-node cfg (subvec children 0 (:b cfg)))
-             (data-node cfg (subvec children (:b cfg)))
-             (nth children (dec (:b cfg)))))
+    (->Split (data-node cfg (subvec children 0 (:data-b cfg)))
+             (data-node cfg (subvec children (:data-b cfg)))
+             (nth children (dec (:data-b cfg)))))
   (merge-node [this other]
     (data-node cfg (catvec children (:children other))))
   (lookup [root key]
@@ -210,6 +227,17 @@
 (defn data-node?
   [node]
   (instance? DataNode node))
+
+(nippy/extend-freeze DataNode :b-tree/data-node
+                     [{:keys [cfg children]} data-output]
+                     (nippy/freeze-to-out! data-output cfg)
+                     (nippy/freeze-to-out! data-output children))
+
+(nippy/extend-thaw :b-tree/data-node
+                   [data-input]
+                   (let [cfg (nippy/thaw-from-in! data-input)
+                         children (nippy/thaw-from-in! data-input)]
+                     (->DataNode children nil cfg)))
 
 ;(println (b-tree :foo :bar :baz))
 ;(pp/pprint (apply b-tree (range 100)))
