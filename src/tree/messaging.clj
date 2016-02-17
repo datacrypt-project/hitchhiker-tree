@@ -14,19 +14,19 @@
 
 (defprotocol IOperation
   (affects-key [op] "Which key this affects--currently must be a single key")
-  (apply-op-to-vector [op v] "Applies the operation to the vector")
+  (apply-op-to-coll [op coll] "Applies the operation to the collection")
   (apply-op-to-tree [op tree] "Applies the operation to the tree"))
 
 (defrecord InsertOp [key]
   IOperation
   (affects-key [_] key)
-  (apply-op-to-vector [_ v] (core/-insertion-into-sorted-vector v key))
+  (apply-op-to-coll [_ set] (conj set key))
   (apply-op-to-tree [_ tree] (core/insert tree key)))
 
 (defrecord DeleteOp [key]
   IOperation
   (affects-key [_] key)
-  (apply-op-to-vector [_ v] (core/-deletion-from-sorted-vector v key))
+  (apply-op-to-coll [_ set] (disj set key))
   (apply-op-to-tree [_ tree] (core/delete tree key)))
 
 (defmethod print-method InsertOp
@@ -265,8 +265,8 @@
       ; (println "left-sibs-min-last" left-sibs-min-last)
       ; (println "is-last?" is-last?)
       ; (println "expanding data node" data-node "with ops" correct-ops)
-      (reduce (fn [v op]
-                (apply-op-to-vector op v))
+      (reduce (fn [coll op]
+                (apply-op-to-coll op coll))
               (:children data-node)
               correct-ops))))
 
@@ -295,7 +295,7 @@
 
 (defn lookup
   [tree key]
-  (let [path (pop (pop (core/lookup-path tree key)))
+  (let [path (core/lookup-path tree key)
         expanded (apply-ops-in-path path)
         i (Collections/binarySearch expanded key core/compare)]
     (println expanded)
@@ -337,7 +337,7 @@
 
 (defn lookup-fwd-iter
   [tree key]
-  (let [path (pop (pop (core/lookup-path tree key)))]
+  (let [path (core/lookup-path tree key)]
     (when path
       (drop-while (fn [e]
                     (neg? (core/compare e key)))

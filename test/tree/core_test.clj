@@ -10,16 +10,16 @@
 
 (deftest simple-read-only-behavior
   (testing "Basic searches"
-    (let [data1 (data-node (->Config 3 3 2) [1 2 3 4 5])
-          data2 (data-node (->Config 3 3 2) [6 7 8 9 10])
+    (let [data1 (data-node (->Config 3 3 2) (sorted-set 1 2 3 4 5))
+          data2 (data-node (->Config 3 3 2) (sorted-set 6 7 8 9 10))
           root (->IndexNode [5] [data1 data2] (promise) [] (->Config 3 3 2))]
-      (is (= (lookup-key root -10) 1) "first key must be LEQ than search key to go past the first elt")
-      (is (= (lookup-key root 100) 10) "last key is still LEQ than search key")
+      (is (= (lookup-key root -10) nil) "not found key")
+      (is (= (lookup-key root 100) nil) "not found key")
       (dotimes [i 10]
         (is (= (lookup-key root (inc i)) (inc i))))))
   (testing "basic fwd iterator"
-    (let [data1 (data-node (->Config 3 3 2) [1 2 3 4 5])
-          data2 (data-node (->Config 3 3 2) [6 7 8 9 10])
+    (let [data1 (data-node (->Config 3 3 2) (sorted-set 1 2 3 4 5))
+          data2 (data-node (->Config 3 3 2) (sorted-set 6 7 8 9 10))
           root (->IndexNode [5] [data1 data2] (promise) [] (->Config 3 3 2))]
       (is (= (lookup-fwd-iter root 4) (range 4 11)))
       (is (= (lookup-fwd-iter root 0) (range 1 11))))))
@@ -34,26 +34,6 @@
 (defspec b-tree-sorts-uniques-random-int-vector
   1000
   added-keys-appear-in-order)
-
-(defspec test-insert-into-sorted-vector
-  1000
-  (prop/for-all [set (gen/set gen/int)
-                 resample? gen/boolean
-                 e gen/int]
-                (let [body (vec (sort set))
-                      e (if resample? (first set) e)]
-                  (= (sort (conj set e))
-                     (-insertion-into-sorted-vector body e)))))
-
-(defspec test-delete-from-sorted-vector
-  1000
-  (prop/for-all [set (gen/set gen/int)
-                 resample? gen/boolean
-                 e gen/int]
-                (let [body (vec (sort set))
-                      e (if resample? (first set) e)]
-                  (= (sort (disj set e))
-                     (-deletion-from-sorted-vector body e)))))
 
 (defspec test-insert
   1000
@@ -75,14 +55,16 @@
                   (= (seq (remove (set set-b) set-a)) b-tree-order))))
 
 (deftest insert-test
-  (let [data1 (data-node (->Config 3 3 2) [1 2 3 4])
+  (let [data1 (data-node (->Config 3 3 2) (sorted-set 1 2 3 4))
         root (->IndexNode [] [data1] (promise) [] (->Config 3 3 2))]
+    (clojure.pprint/pprint root)
+    (clojure.pprint/pprint (insert root 3))
     (is (= (lookup-fwd-iter (insert root 3) -10) [1 2 3 4]))
     (are [x] (= (lookup-fwd-iter (insert root x) -10) (sort (conj [1 2 3 4] x)))
          0
          2.5
          5))
-  (let [data1 (data-node (->Config 3 3 2) [1 2 3 4 5])
+  (let [data1 (data-node (->Config 3 3 2) (sorted-set 1 2 3 4 5))
         root (->IndexNode [] [data1] (promise) [] (->Config 3 3 2))]
     (are [x y] (= (lookup-fwd-iter (insert root x) y)
                   (drop-while

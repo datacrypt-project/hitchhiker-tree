@@ -195,12 +195,17 @@
         (pp/pprint-newline :mandatory)
         (pp/write-out (:children node))))))
 
+(defn nth-of-set
+  "Like nth, but for sorted sets. O(n)"
+  [set index]
+  (first (drop index set)))
+
 (defrecord DataNode [children storage-addr cfg]
   IResolve
   (resolve [this] this) ;;TODO this is a hack for testing
   (dirty? [this] (not (realized? storage-addr)))
   (last-key [this]
-    (peek children))
+    (first (rseq children)))
   INode
   ;; Should have between b & 2b-1 children
   (overflow? [this]
@@ -208,13 +213,13 @@
   (underflow? [this]
     (< (count children) (:data-b cfg)))
   (split-node [this]
-    (->Split (data-node cfg (subvec children 0 (:data-b cfg)))
-             (data-node cfg (subvec children (:data-b cfg)))
-             (nth children (dec (:data-b cfg)))))
+    (->Split (data-node cfg (into (sorted-set) (take (:data-b cfg)) children))
+             (data-node cfg (into (sorted-set) (drop (:data-b cfg)) children))
+             (nth-of-set children (dec (:data-b cfg)))))
   (merge-node [this other]
-    (data-node cfg (catvec children (:children other))))
+    (data-node cfg (into children (:children other))))
   (lookup [root key]
-    (let [x (Collections/binarySearch children key compare)]
+    (let [x (Collections/binarySearch (vec children) key compare)]
       (if (neg? x)
         (- (inc x))
         x))))
@@ -312,15 +317,15 @@
 (defn forward-iterator
   "Takes the result of a search and returns an iterator going
    forward over the tree. Does lg(n) backtracking sometimes."
-  [path start-index]
+  [path start-key]
   (let [start-node (peek path)]
     (assert (data-node? start-node))
     (let [first-elements (-> start-node
                              :children ; Get the indices of it
-                             (subvec start-index)) ; skip to the start-index
+                             (subseq >= start-key)) ; skip to the start-index
           next-elements (lazy-seq
                           (when-let [succ (right-successor (pop path))]
-                            (forward-iterator succ 0)))]
+                            (forward-iterator succ start-key)))]
       (concat first-elements next-elements))))
 
 (defn lookup-path
@@ -330,64 +335,69 @@
          cur tree ;current search node
          ]
     (if (seq (:children cur))
-      (let [index (lookup cur key)
-            child (nth (:children cur) index (peek (:children cur))) ;;TODO what are the semantics for exceeding on the right? currently it's trunc to the last element
-            child (if (data-node? cur)
-                    child
-                    (resolve child))
-            path' (conj path index child)]
-        (if (data-node? cur) ;are we done?
-          path'
+      (if (data-node? cur)
+        path
+        (let [index (lookup cur key)
+              child (if (data-node? cur)
+                      nil #_(nth-of-set (:children cur) index)
+                      (-> (:children cur)
+                          ;;TODO what are the semantics for exceeding on the right? currently it's trunc to the last element 
+                          (nth index (peek (:children cur)))
+                          (resolve)))
+              path' (conj path index child)]
           (recur path' child)))
       nil)))
 
 (defn lookup-key
   "Given a B-tree and a key, gets an iterator into the tree"
   [tree key]
-  (peek (lookup-path tree key)))
+  (-> (lookup-path tree key)
+      (peek)
+      (resolve)
+      :children
+      (subseq >= key <= key)
+      first))
 
 (defn lookup-fwd-iter
   [tree key]
-  (let [path (lookup-path tree key)
-        path (pop path)
-        index (peek path)
-        path (pop path)]
+  (let [path (lookup-path tree key)]
     (when path
-      (forward-iterator path index))))
+      (forward-iterator path key))))
 
-(defn -insertion-into-sorted-vector
-  "Inserts the given key into the sorted vector.
-   
-   This is like a single insert from insertion sort,
-   except that we have rrb-trees, so it's O(lg(n))
-   instead :)"
-  [v key]
-  (let [index (Collections/binarySearch v key compare)]
-    (if (neg? index)
-      (let [index (- (inc index))]
-        (if (= (count v) index)
-          (conj v key)
-          (let [left (subvec v 0 index)
-                right (subvec v index)]
-            (catvec (conj left key) right))))
-      ;;This assoc-in should be a no-op, but models how to do the KV update
-      ;;if we inserted a new key unconditionally here, that might enable multiple values per key
-      (assoc v index key))))
+(def total (atom 0))
+(defmacro time!
+  [body]
+  `(let [before# (System/currentTimeMillis)
+         x# ~body
+         after# (System/currentTimeMillis)]
+     (swap! ~'total + (- after# before#))
+     x#))
+(println @total)
+;(require '[criterium.core :refer (quick-bench)])
+;It took 60s!  to insert all of rs into the b-tree below
+;Now it only takes 20 with the sorted sets
+;(def rs (repeatedly 1000000 rand))
+;(do (time (apply sorted-set rs)) nil)
+;(do (time (apply b-tree (->Config 70 80 10) rs)) nil)
+;43 ms (39 in insert)?
+;
+;(lookup-fwd-iter (b-tree (->Config 3 3 10) 1 2 3 4 5 6 7 8 9) 20)
 
-(defn -deletion-from-sorted-vector
-  [v key]
-  (let [index (Collections/binarySearch v key compare)]
-    (cond
-      (neg? index) v ; not found, do nothing
-      (zero? index) (subvec v 1) ; if first, no need to concat
-      (= (dec (count v)) index) (pop v) ; if last, just pop
-      :else (catvec (subvec v 0 index) (subvec v (inc index))))))
+;(quick-bench (repeatedly 1000 rand)) ;25ns
+;(quick-bench (apply sorted-set (repeatedly 1000 rand))) ;1.5ms
+;(quick-bench (vec (sort (repeatedly 1000 rand)))) ;820us
+;
+;(quick-bench (-insertion-into-sorted-vector (vec (sort (repeatedly 1000 rand)))
+;                                            (rand))) ;870us
+;
+;(quick-bench (conj (apply sorted-set (repeatedly 1000 rand))
+;                   (rand))) ; 1.5ms
 
 (defn insert
   [{:keys [cfg] :as tree} key]
-  (let [path (pop (pop (lookup-path tree key))) ; don't care about the found key or its index
-        {:keys [children] :or {children []}} (peek path)
-        updated-data-node (data-node cfg (-insertion-into-sorted-vector children key))]
+  (let [path (lookup-path tree key) ; don't care about the found key or its index
+        {:keys [children] :or {children (sorted-set)}} (peek path)
+        updated-data-node (data-node cfg (conj children key))]
     (loop [node updated-data-node
            path (pop path)]
       (if (empty? path)
@@ -421,9 +431,9 @@
 
 (defn delete
   [{:keys [cfg] :as tree} key]
-  (let [path (pop (pop (lookup-path tree key))) ; don't care about the found key or its index
-        {:keys [children] :or {children []}} (peek path)
-        updated-data-node (data-node cfg (-deletion-from-sorted-vector children key))]
+  (let [path (lookup-path tree key) ; don't care about the found key or its index
+        {:keys [children] :or {children (sorted-set)}} (peek path)
+        updated-data-node (data-node cfg (disj children key))]
     (loop [node updated-data-node
            path (pop path)]
       (if (empty? path)
@@ -477,7 +487,7 @@
 
 (defn b-tree
   [cfg & keys]
-  (reduce insert (data-node cfg []) keys))
+  (reduce insert (data-node cfg (sorted-set)) keys))
 
 (defrecord TestingAddr [last-key node]
   IResolve

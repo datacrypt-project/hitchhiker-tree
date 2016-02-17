@@ -41,4 +41,7 @@
   (clojure.pprint/pprint t)
   (msg/lookup-fwd-iter (:tree t) -10)
 
+(require '[criterium.core :refer (quick-bench)])
+  (quick-bench (apply core/b-tree (core/->Config 70 80 10) (repeatedly 1000 rand)))
+
   )
