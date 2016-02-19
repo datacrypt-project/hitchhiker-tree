@@ -95,7 +95,7 @@
                :set (sorted-set-repr)}]
     (doseq [tree (keys trees)
             ds (generate-test-datasets)
-            flush-freq [100]
+            flush-freq [1000]
             :let [out (create-output-dir
                         output
                         (str (name tree)
