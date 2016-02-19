@@ -108,16 +108,16 @@
                    ;; Any changes to the current child?
                    new-child
                    (cond
-                     on-the-last-child?
+                     (and on-the-last-child? (seq extra-msgs))
                      (enqueue (core/resolve child)
                               (catvec took-msgs extra-msgs)
                               deferred-ops)
-                     (empty? took-msgs) ; save a write
-                     child
-                     :else
+                     (seq took-msgs) ; save a write
                      (enqueue (core/resolve child)
                               took-msgs
-                              deferred-ops))]
+                              deferred-ops)
+                     :else
+                     child)]
 
                (if on-the-last-child?
                  (-> tree

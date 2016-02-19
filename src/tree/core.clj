@@ -378,7 +378,7 @@
 ;Now it only takes 20 with the sorted sets
 ;(def rs (repeatedly 1000000 rand))
 ;(do (time (apply sorted-set rs)) nil)
-;(do (time (apply b-tree (->Config 70 80 10) rs)) nil)
+;(do (quick-bench (apply b-tree (->Config 70 80 10) rs)) nil)
 ;43 ms (39 in insert)?
 ;
 ;(lookup-fwd-iter (b-tree (->Config 3 3 10) 1 2 3 4 5 6 7 8 9) 20)
@@ -422,7 +422,7 @@
                          (dirty!))
                      (pop (pop path))))
             (recur (-> parent
-                       (assoc :children (assoc children index node))
+                       (assoc-in [:children index] node)
                        (dirty!))
                    (pop (pop path)))))))))
 
