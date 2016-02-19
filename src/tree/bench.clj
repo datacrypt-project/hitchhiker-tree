@@ -1,6 +1,8 @@
 (ns tree.bench
   (:require [clojure.pprint :as pp]
             [clojure.string :as str]
+            [excel-templates.build :as excel]
+            [clojure.tools.cli :refer (parse-opts)]
             [tree.core :as core]
             [tree.messaging :as msg])
   (:import [java.io File FileWriter]))
@@ -61,7 +63,8 @@
            t 0
            tree structure
            last-flush nil
-           i 0]
+           i 0
+           outputs []]
       (let [i' (inc i)
             {flushed-tree :tree
              stats :stats} (when (zero? (mod i' flush-freq))
@@ -69,39 +72,146 @@
             before (System/nanoTime)
             tree' (insert (or flushed-tree tree) x)
             after (System/nanoTime) 
-            log-inserts (zero? (mod i' (quot n 100)))]
+            log-inserts (zero? (mod i' (quot n 100)))
+            updated-outputs (atom outputs)]
         (when log-inserts ;; 1000 pieces
           (binding [*out* (:speed out)]
-            (let [ks (sort (keys last-flush))]
+            (let [ks (sort (keys last-flush))
+                  avg-ns (float (/ t (quot n 100)))]
               (when (zero? i)
                 (println (str "elements,insert_took_avg_ns,"
                               (str/join "," ks))))
-              (println (str i' "," (float (/ t (quot n 100)))
-                            "," (str/join "," (map #(get last-flush %) ks)))))))
-        (when (seq data)
+              (println (str i' "," avg-ns
+                            "," (str/join "," (map #(get last-flush %) ks))))
+              (swap! updated-outputs conj (-> (into {} last-flush)
+                                              (assoc :avg-ns avg-ns
+                                                     :n i))))))
+        (if (seq data)
           (recur data
                  (if log-inserts
                    0
                    (+ t (- after before)))
                  tree'
                  (if stats @stats last-flush)
-                 i'))))))
+                 i'
+                 @updated-outputs)
+          @updated-outputs)))))
+
+(def options
+  [["-n" "--num-operations NUM_OPS" "The number of elements that will be applied to the data structure"
+    :default 100000
+    :parse-fn #(Long. %)
+    :validate [pos? "n must be positive"]]
+   [nil "--core-b-tree" "Runs benchmarks on a basic B tree"]
+   [nil "--fractal-tree" "Runs benchmarks on a fractal tree"
+    :default true]
+   [nil "--sorted-set" "Runs the benchmarks on a sorted set"]
+   ["-b" "--tree-width" "Determines the width of the trees. Fractal trees use sqrt(b) child pointers; the rest is for messages."
+    :default 300
+    :parse-fn #(Long. %)
+    :validate [pos? "b must be positive"]]
+   ["-f" "--flush-freq FREQ" "After how many operations should the tree get flushed?"
+    :default [1000]
+    :parse-fn #(Long. %)
+    :assoc-fn conj
+    :validate [pos? "flush frequency must be positive"]]
+   ["-h" "--help" "Prints this help"]])
+
+(defn exit
+  [status msg]
+  (println msg)
+  (System/exit status))
+
+(defn error-msg
+  [errors]
+  (str "The following errors occurred while parsing your command:\n\n"
+       (str/join \newline errors)))
+
+(defn usage
+  [options-summary]
+  (str/join \newline
+            ["Usage: bench [options] output-dir"
+             ""
+             "Options:"
+             options-summary]))
+
+(defn make-template-for-one-tree-freq-combo
+  [list-of-benchmark-results]
+    (clojure.pprint/pprint list-of-benchmark-results)
+  (assert (= 2 (count list-of-benchmark-results)) "Should be random and ordered")
+  (let [indexed (group-by :ds list-of-benchmark-results)]
+    (map #(vector (:n %1) (:avg-ns %1) (:writes %1) (:avg-ns %2) (:writes %2))
+         (:results (first (get indexed "in-order")))
+         (:results (first (get indexed "random"))))))
+
+(defn template-one-sheet
+  [pair-of-results-for-one-ds-config]
+  (let [{:keys [tree ds freq n b results]} (first pair-of-results-for-one-ds-config)
+    x {;:sheet-name (str (name tree) " " ds " flushed every " freq)
+     1 [["Data poStructure" (name tree)]]
+     2 [["Flush Frequency" freq]]
+     [6 105] (make-template-for-one-tree-freq-combo pair-of-results-for-one-ds-config)}] 
+    (println)
+    (println "here's a sheet")
+    (clojure.pprint/pprint x)
+    (println)
+    
+    x))
 
 (defn -main
   [& args]
-  (let [output (first args)
-        trees {:core (core-b-tree 300)
-               :msg (msg-b-tree 300)
-               :set (sorted-set-repr)}]
-    (doseq [tree (keys trees)
+  (let [{:keys [options arguments errors summary]} (parse-opts args options)
+        trees-to-test (atom {})
+        results (atom [])]
+    (cond
+      (:help options) (exit 0 (usage summary))
+      (not= (count arguments) 1) (exit 1 (usage summary))
+      errors (exit 1 (error-msg errors)))
+    (when (:core-b-tree options)
+      (swap! trees-to-test assoc :core (core-b-tree (:tree-width options))))
+    (when (:fractal-tree options)
+      (swap! trees-to-test assoc :fractal (msg-b-tree (:tree-width options))))
+    (when (:sorted-set options)
+      (swap! trees-to-test assoc :sorted-set (sorted-set-repr)))
+    (doseq [tree (keys @trees-to-test)
             ds (generate-test-datasets)
-            flush-freq [1000]
+            flush-freq (:flush-freq options)
             :let [out (create-output-dir
-                        output
+                        (first arguments)
                         (str (name tree)
                              "_"
                              (:name ds)
                              "_"
                              flush-freq))]]
       (println "Doing the" tree "on the" (:name ds) "dataset, flushing every" flush-freq)
-      (benchmark 1000000 ds flush-freq (get trees tree) out))))
+      (swap! results conj
+             {:tree tree
+              :ds (:name ds)
+              :freq flush-freq
+              :n (:num-operations options)
+              :b (:tree-width options)
+              :results (benchmark (:num-operations options) ds flush-freq (get @trees-to-test tree) out)}))
+    (println @results)
+    (let [results-by-tree (group-by (juxt :tree :freq) @results)
+          first-result (second (first results-by-tree))]
+      (excel/render-to-file
+        "template_benchmark.xlsx"
+        (.getPath (File. (first arguments) "analysis.xlsx"))
+        {"Single DS"
+         (reduce (fn [templs [[tree freq] list-of-results]]
+                   (conj templs (template-one-sheet list-of-results)))
+                 []
+                 results-by-tree)}))))
+
+(comment
+  (excel/render-to-file
+        "template_benchmark.xlsx"
+        "template_trial.xlsx"
+     {"SingleDS"
+      [{;:sheet-name "cool sheet"
+        2 [["Data poStructure" "lol"]]
+        3 [["Flush aoenuthsaeoFrequency" 1000]]}
+      {;:sheet-name "cool sheet2"
+        1 [["Data poStructure234" "lol"]]
+        3 [["Flush aoenuthsaeoFrequency" 1000]]}]}
+    ))
