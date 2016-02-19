@@ -147,15 +147,17 @@
 (defn template-one-sheet
   [pair-of-results-for-one-ds-config]
   (let [{:keys [tree ds freq n b results]} (first pair-of-results-for-one-ds-config)
-    x {;:sheet-name (str (name tree) " " ds " flushed every " freq)
-     1 [["Data poStructure" (name tree)]]
-     2 [["Flush Frequency" freq]]
-     [6 105] (make-template-for-one-tree-freq-combo pair-of-results-for-one-ds-config)}] 
+        x {:sheet-name (str (name tree) " " ds " flushed every " freq)
+           0 [["Data Structure" (name tree)]]
+           1 [["Flush Frequency" freq]]
+           ;[5 104] (make-template-for-one-tree-freq-combo pair-of-results-for-one-ds-config)
+
+           }] 
     (println)
     (println "here's a sheet")
     (clojure.pprint/pprint x)
     (println)
-    
+
     x))
 
 (defn -main
@@ -191,13 +193,15 @@
               :n (:num-operations options)
               :b (:tree-width options)
               :results (benchmark (:num-operations options) ds flush-freq (get @trees-to-test tree) out)}))
-    (println @results)
-    (let [results-by-tree (group-by (juxt :tree :freq) @results)
+    (println "Excel output is bugged ATM")
+    #_(println @results)
+    #_(let [results-by-tree (group-by (juxt :tree :freq) @results)
           first-result (second (first results-by-tree))]
       (excel/render-to-file
-        "template_benchmark.xlsx"
+        "Workbook1.xlsx"
+        ;"template_benchmark.xlsx"
         (.getPath (File. (first arguments) "analysis.xlsx"))
-        {"Single DS"
+        {"SingleDS"
          (reduce (fn [templs [[tree freq] list-of-results]]
                    (conj templs (template-one-sheet list-of-results)))
                  []
@@ -205,13 +209,13 @@
 
 (comment
   (excel/render-to-file
-        "template_benchmark.xlsx"
+        "Workbook1.xlsx"
         "template_trial.xlsx"
      {"SingleDS"
-      [{;:sheet-name "cool sheet"
-        2 [["Data poStructure" "lol"]]
-        3 [["Flush aoenuthsaeoFrequency" 1000]]}
-      {;:sheet-name "cool sheet2"
-        1 [["Data poStructure234" "lol"]]
-        3 [["Flush aoenuthsaeoFrequency" 1000]]}]}
+      [{:sheet-name "cool sheet"
+        0 [["Data poStructure" "lol"]]
+        1 [["Flush aoenuthsaeoFrequency" 1000]]}
+      {:sheet-name "cool sheet2"
+        0 [["Data poStructure234" "lol"]]
+        1 [["Flush aoenuthsaeoFrequency" 1000]]}]}
     ))
