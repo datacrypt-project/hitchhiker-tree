@@ -3,6 +3,7 @@
             [clojure.string :as str]
             [excel-templates.build :as excel]
             [clojure.tools.cli :refer (parse-opts)]
+            [tree.redis :as redis]
             [tree.core :as core]
             [tree.messaging :as msg])
   (:import [java.io File FileWriter]))
@@ -15,18 +16,18 @@
 
 (defn core-b-tree
   "Returns a b-tree with core insert"
-  [b]
+  [b backend]
   {:structure (core/b-tree (core/->Config b b 0))
    :insert core/insert
-   :flush (fn [x] (core/flush-tree x (core/->TestingBackend)))})
+   :flush (fn [x] (core/flush-tree x backend))})
 
 (defn msg-b-tree
   "Returns a b-tree with msg insert"
-  [b]
+  [b backend]
   (let [sqrt-b (long (Math/sqrt b))]
     {:structure (core/b-tree(core/->Config sqrt-b b (- b sqrt-b)))
      :insert msg/insert
-     :flush (fn [x] (core/flush-tree x (core/->TestingBackend)))}))
+     :flush (fn [x] (core/flush-tree x backend))}))
 
 (defn sorted-set-repr
   "Returns a sorted set"
@@ -92,7 +93,7 @@
                    0
                    (+ t (- after before)))
                  tree'
-                 (if stats @stats last-flush)
+                 (if stats (merge-with + last-flush @stats) last-flush)
                  i'
                  @updated-outputs)
           @updated-outputs)))))
@@ -103,8 +104,9 @@
     :parse-fn #(Long. %)
     :validate [pos? "n must be positive"]]
    [nil "--core-b-tree" "Runs benchmarks on a basic B tree"]
-   [nil "--fractal-tree" "Runs benchmarks on a fractal tree"
-    :default true]
+   [nil "--fractal-tree" "Runs benchmarks on a fractal tree"]
+   [nil "--backend testing" "Runs the benchmark with the specified backend"
+    :default "testing"]
    [nil "--sorted-set" "Runs the benchmarks on a sorted set"]
    ["-b" "--tree-width" "Determines the width of the trees. Fractal trees use sqrt(b) child pointers; the rest is for messages."
     :default 300
@@ -113,7 +115,8 @@
    ["-f" "--flush-freq FREQ" "After how many operations should the tree get flushed?"
     :default [1000]
     :parse-fn #(Long. %)
-    :assoc-fn conj
+    :assoc-fn (fn [m k v]
+                (update-in m [k] conj v))
     :validate [pos? "flush frequency must be positive"]]
    ["-h" "--help" "Prints this help"]])
 
@@ -133,7 +136,11 @@
             ["Usage: bench [options] output-dir"
              ""
              "Options:"
-             options-summary]))
+             options-summary
+             ""
+             "Backends:"
+             "testing: this backend serializes nothing, just using an extra indirection"
+             "redis: this backend uses a local redis server"]))
 
 (defn make-template-for-one-tree-freq-combo
   [list-of-benchmark-results]
@@ -169,43 +176,46 @@
       (:help options) (exit 0 (usage summary))
       (not= (count arguments) 1) (exit 1 (usage summary))
       errors (exit 1 (error-msg errors)))
-    (when (:core-b-tree options)
-      (swap! trees-to-test assoc :core (core-b-tree (:tree-width options))))
-    (when (:fractal-tree options)
-      (swap! trees-to-test assoc :fractal (msg-b-tree (:tree-width options))))
-    (when (:sorted-set options)
-      (swap! trees-to-test assoc :sorted-set (sorted-set-repr)))
-    (doseq [tree (keys @trees-to-test)
-            ds (generate-test-datasets)
-            flush-freq (:flush-freq options)
-            :let [out (create-output-dir
-                        (first arguments)
-                        (str (name tree)
-                             "_"
-                             (:name ds)
-                             "_"
-                             flush-freq))]]
-      (println "Doing the" tree "on the" (:name ds) "dataset, flushing every" flush-freq)
-      (swap! results conj
-             {:tree tree
-              :ds (:name ds)
-              :freq flush-freq
-              :n (:num-operations options)
-              :b (:tree-width options)
-              :results (benchmark (:num-operations options) ds flush-freq (get @trees-to-test tree) out)}))
+    (let [backend (case (:backend options)
+                    "testing" (core/->TestingBackend)
+                    "redis" (redis/->RedisBackend))]
+      (when (:core-b-tree options)
+        (swap! trees-to-test assoc :core (core-b-tree (:tree-width options) backend)))
+      (when (:fractal-tree options)
+        (swap! trees-to-test assoc :fractal (msg-b-tree (:tree-width options) backend)))
+      (when (:sorted-set options)
+        (swap! trees-to-test assoc :sorted-set (sorted-set-repr)))
+      (doseq [tree (keys @trees-to-test)
+              ds (generate-test-datasets)
+              flush-freq (:flush-freq options)
+              :let [out (create-output-dir
+                          (first arguments)
+                          (str (name tree)
+                               "_"
+                               (:name ds)
+                               "_"
+                               flush-freq))]]
+        (println "Doing the" tree "on the" (:name ds) "dataset, flushing every" flush-freq)
+        (swap! results conj
+               {:tree tree
+                :ds (:name ds)
+                :freq flush-freq
+                :n (:num-operations options)
+                :b (:tree-width options)
+                :results (benchmark (:num-operations options) ds flush-freq (get @trees-to-test tree) out)})))
     (println "Excel output is bugged ATM")
     #_(println @results)
     #_(let [results-by-tree (group-by (juxt :tree :freq) @results)
-          first-result (second (first results-by-tree))]
-      (excel/render-to-file
-        "Workbook1.xlsx"
-        ;"template_benchmark.xlsx"
-        (.getPath (File. (first arguments) "analysis.xlsx"))
-        {"SingleDS"
-         (reduce (fn [templs [[tree freq] list-of-results]]
-                   (conj templs (template-one-sheet list-of-results)))
-                 []
-                 results-by-tree)}))))
+            first-result (second (first results-by-tree))]
+        (excel/render-to-file
+          "Workbook1.xlsx"
+          ;"template_benchmark.xlsx"
+          (.getPath (File. (first arguments) "analysis.xlsx"))
+          {"SingleDS"
+           (reduce (fn [templs [[tree freq] list-of-results]]
+                     (conj templs (template-one-sheet list-of-results)))
+                   []
+                   results-by-tree)}))))
 
 (comment
   (excel/render-to-file

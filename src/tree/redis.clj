@@ -132,4 +132,9 @@
 (require '[criterium.core :refer (quick-bench)])
   (quick-bench (apply core/b-tree (core/->Config 70 80 10) (repeatedly 1000 rand)))
 
+  (time (core/flush-tree (time (reduce msg/insert
+                           (core/b-tree (core/->Config 17 300 (- 300 17)))
+                           (range 10000000))) 
+                   (->RedisBackend)
+                   ))
   )

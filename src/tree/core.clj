@@ -422,6 +422,7 @@
                          (dirty!))
                      (pop (pop path))))
             (recur (-> parent
+                       ;;TODO this assoc-in seems to be a bottleneck
                        (assoc-in [:children index] node)
                        (dirty!))
                    (pop (pop path)))))))))
@@ -588,6 +589,9 @@
     (pp/pprint t')
     )
 
+(Math/sqrt 300)
 
-  (:stats (flush-tree (apply b-tree (range 30))))
+  (:stats (flush-tree (apply b-tree (core/->Config 17 300 (- 300 17)) (range 1000000)) 
+                      (->RedisBackend)
+                      ))
   )
