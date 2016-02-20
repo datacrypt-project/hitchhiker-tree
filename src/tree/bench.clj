@@ -11,7 +11,7 @@
 (defn generate-test-datasets
   "Returns a list of datasets"
   []
-  [;{:name "in-order" :data (range)}
+  [{:name "in-order" :data (range)}
    {:name "random" :data (repeatedly rand)}])
 
 (defn core-b-tree
@@ -103,20 +103,20 @@
     :default 100000
     :parse-fn #(Long. %)
     :validate [pos? "n must be positive"]]
-   [nil "--core-b-tree" "Runs benchmarks on a basic B tree"]
-   [nil "--fractal-tree" "Runs benchmarks on a fractal tree"]
+   [nil "--data-structure" "Which data structure to run the test on"
+    :default "fractal"
+    :validate [#(#{"fractal" "b-tree" "sorted-set"} %) "Data structure must be fractal, b-tree, or sorted set"]]
    [nil "--backend testing" "Runs the benchmark with the specified backend"
-    :default "testing"]
+    :default "testing"
+    :validate [#(#{"redis" "testing"} %) "Backend must be redis or testing"]] 
    [nil "--sorted-set" "Runs the benchmarks on a sorted set"]
    ["-b" "--tree-width" "Determines the width of the trees. Fractal trees use sqrt(b) child pointers; the rest is for messages."
     :default 300
     :parse-fn #(Long. %)
     :validate [pos? "b must be positive"]]
    ["-f" "--flush-freq FREQ" "After how many operations should the tree get flushed?"
-    :default [1000]
+    :default 1000
     :parse-fn #(Long. %)
-    :assoc-fn (fn [m k v]
-                (update-in m [k] conj v))
     :validate [pos? "flush frequency must be positive"]]
    ["-h" "--help" "Prints this help"]])
 
@@ -154,79 +154,62 @@
 (defn template-one-sheet
   [pair-of-results-for-one-ds-config]
   (let [{:keys [tree ds freq n b results]} (first pair-of-results-for-one-ds-config)
-        x {:sheet-name (str (name tree) " " ds " flushed every " freq)
-           0 [["Data Structure" (name tree)]]
-           1 [["Flush Frequency" freq]]
-           ;[5 104] (make-template-for-one-tree-freq-combo pair-of-results-for-one-ds-config)
-
-           }] 
-    (println)
-    (println "here's a sheet")
-    (clojure.pprint/pprint x)
-    (println)
-
+        x {;:sheet-name (str (name tree) " " ds " flushed every " freq)
+           0 [["Data Structure" (name tree) "" "n" n]]
+           1 [["Flush Frequency" freq "" "b" b]]
+           [5 104] (make-template-for-one-tree-freq-combo pair-of-results-for-one-ds-config)}]
     x))
 
 (defn -main
-  [& args]
-  (let [{:keys [options arguments errors summary]} (parse-opts args options)
-        trees-to-test (atom {})
-        results (atom [])]
-    (cond
-      (:help options) (exit 0 (usage summary))
-      (not= (count arguments) 1) (exit 1 (usage summary))
-      errors (exit 1 (error-msg errors)))
-    (let [backend (case (:backend options)
-                    "testing" (core/->TestingBackend)
-                    "redis" (redis/->RedisBackend
-                              #_(java.util.concurrent.Executors/newFixedThreadPool 4)))]
-      (when (:core-b-tree options)
-        (swap! trees-to-test assoc :core (core-b-tree (:tree-width options) backend)))
-      (when (:fractal-tree options)
-        (swap! trees-to-test assoc :fractal (msg-b-tree (:tree-width options) backend)))
-      (when (:sorted-set options)
-        (swap! trees-to-test assoc :sorted-set (sorted-set-repr)))
-      (doseq [tree (keys @trees-to-test)
-              ds (generate-test-datasets)
-              flush-freq (:flush-freq options)
-              :let [out (create-output-dir
-                          (first arguments)
-                          (str (name tree)
-                               "_"
-                               (:name ds)
-                               "_"
-                               flush-freq))]]
-        (println "Doing the" tree "on the" (:name ds) "dataset, flushing every" flush-freq)
-        (swap! results conj
-               {:tree tree
-                :ds (:name ds)
-                :freq flush-freq
-                :n (:num-operations options)
-                :b (:tree-width options)
-                :results (benchmark (:num-operations options) ds flush-freq (get @trees-to-test tree) out)})))
-    (println "Excel output is bugged ATM")
-    #_(println @results)
-    #_(let [results-by-tree (group-by (juxt :tree :freq) @results)
-            first-result (second (first results-by-tree))]
-        (excel/render-to-file
-          "Workbook1.xlsx"
-          ;"template_benchmark.xlsx"
-          (.getPath (File. (first arguments) "analysis.xlsx"))
-          {"SingleDS"
-           (reduce (fn [templs [[tree freq] list-of-results]]
-                     (conj templs (template-one-sheet list-of-results)))
-                   []
-                   results-by-tree)}))))
-
-(comment
-  (excel/render-to-file
+  [root & args]
+  (doseq [args (->> args
+                    (partition-by #(= % "--"))
+                    (map-indexed vector)
+                    (filter (comp even? first))
+                    (map second))]
+    (let [{:keys [options arguments errors summary]} (parse-opts args options)
+          tree-to-test (atom {})
+          results (atom [])]
+      (cond
+        (:help options) (exit 0 (usage summary))
+        (not= (count arguments) 0) (exit 1 (usage summary))
+        errors (exit 1 (error-msg errors)))
+      (let [backend (case (:backend options)
+                      "testing" (core/->TestingBackend)
+                      "redis" (redis/->RedisBackend
+                                #_(java.util.concurrent.Executors/newFixedThreadPool 4)))
+            [tree-name structure]
+            (case (:data-structure options)
+              "b-tree" ["b-tree" (core-b-tree (:tree-width options) backend)]
+              "fractal" ["fractal" (msg-b-tree (:tree-width options) backend)]
+              "sorted-set" ["sorted-set" (sorted-set-repr)])
+            flush-freq (:flush-freq options)
+            codename (str tree-name
+                          "_flush"
+                          flush-freq
+                          "_b"
+                          (:tree-width options)
+                          "_"
+                          (:backend options)
+                          "_n"
+                          (:num-operations options))]
+        (doseq [ds (generate-test-datasets)
+                :let [codename (str codename
+                                    "_"
+                                    (:name ds))
+                      out (create-output-dir
+                            root
+                            codename)]]
+                (println "Doing" codename)
+          (swap! results conj 
+                 {:tree tree-name
+                  :ds (:name ds)
+                  :freq flush-freq
+                  :n (:num-operations options)
+                  :b (:tree-width options)
+                  :results (benchmark (:num-operations options) ds flush-freq structure out)}))
+      (excel/render-to-file
         "template_benchmark.xlsx"
-        "template_trial.xlsx"
-     {"SingleDS"
-      [{:sheet-name "cool sheet"
-        0 [["Data poStructure" "lol"]]
-        1 [["Flush aoenuthsaeoFrequency" 1000]]}
-      {:sheet-name "cool sheet2"
-        0 [["Data poStructure234" "lol"]]
-        1 [["Flush aoenuthsaeoFrequency" 1000]]}]}
-    ))
+        (.getPath (File. root (str codename "_analysis.xlsx")))
+        {"SingleDS"
+         (template-one-sheet @results)})))))
