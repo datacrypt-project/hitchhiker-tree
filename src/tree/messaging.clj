@@ -69,6 +69,7 @@
              msg-buffers-propagated
              @deferred-ops)))
   ([tree msgs deferred-ops]
+   ;(println "tree is" (class tree) tree)
    (let [tree (core/resolve tree)]
      (cond
        (core/data-node? tree) ; need to return ops to apply to the tree proper...

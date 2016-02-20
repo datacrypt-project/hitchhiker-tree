@@ -2,13 +2,25 @@
   (:require [clojure.pprint :as pp]
             [taoensso.carmine :as car :refer (wcar)]
             [tree.core :as core]
+            [clojure.core.memoize :as memo]
             [tree.messaging :as msg]))
+
+(def totally-fetch
+  (memo/lru (fn [redis-key]
+              (loop [i 0]
+                (if (= i 1000)
+                  (do (println "total fail") (System/exit 1))
+                  (let [x (wcar {} (car/get redis-key))]
+                    (if x
+                      x
+                      (do (Thread/sleep 25) (recur (inc i))))))))
+            :lru/threshold 400))
 
 (defrecord RedisAddr [last-key redis-key]
   core/IResolve
   (dirty? [_] false)
   (last-key [_] last-key)
-  (resolve [_] (let [x (-> (wcar {} (car/get redis-key))
+  (resolve [_] (let [x (-> (totally-fetch redis-key)
                    (assoc :storage-addr
                           (doto (promise)
                             (deliver redis-key))))]
@@ -16,13 +28,14 @@
                  x
                  )))
 
-(defrecord RedisBackend []
+(defrecord RedisBackend [#_service]
   core/IBackend
   (new-session [_] (atom {:writes 0
                           :deletes 0}))
   (write-node [_ node session]
     (swap! session update-in [:writes] inc)
     (let [key (str (java.util.UUID/randomUUID))]
+      ;(.submit service #(wcar {} (car/set key node)))
       (wcar {} (car/set key node))
       (->RedisAddr (core/last-key node) key)))
   (delete-addr [_ addr session]
@@ -44,7 +57,7 @@
 
 (println "cleared"
          (wcar {} (apply car/del
-                         (wcar {} (car/keys "*"))))))
+                         (count (wcar {} (car/keys "*")))))))
 
 ;; Benchmarks:
 ;; We'll have 2 workloads: in-order (the natural numbers) and random (doubles in 0-1)

@@ -4,6 +4,7 @@
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.7.0"]
+                 [org.clojure/core.memoize "0.5.8"]
                  [org.clojure/test.check "0.9.0"]
                  [org.clojure/tools.cli "0.3.3"]
                  [com.infolace/excel-templates "0.3.1"]

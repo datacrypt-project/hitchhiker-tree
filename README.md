@@ -18,6 +18,8 @@ saves 26% on IO with flushes every 100 writes or 1000 writes.
 
 The fractal tree does even better with random IO--it uses 83% less IO.
 
+The redis backend can reach around 5000 inserts/sec when N=1million
+
 You can generate benchmarking data yourself by running the `tree.bench`
 namespace. Just do `lein run -m tree.bench opts...`.
 

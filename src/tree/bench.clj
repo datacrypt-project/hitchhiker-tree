@@ -11,7 +11,7 @@
 (defn generate-test-datasets
   "Returns a list of datasets"
   []
-  [{:name "in-order" :data (range)}
+  [;{:name "in-order" :data (range)}
    {:name "random" :data (repeatedly rand)}])
 
 (defn core-b-tree
@@ -178,7 +178,8 @@
       errors (exit 1 (error-msg errors)))
     (let [backend (case (:backend options)
                     "testing" (core/->TestingBackend)
-                    "redis" (redis/->RedisBackend))]
+                    "redis" (redis/->RedisBackend
+                              #_(java.util.concurrent.Executors/newFixedThreadPool 4)))]
       (when (:core-b-tree options)
         (swap! trees-to-test assoc :core (core-b-tree (:tree-width options) backend)))
       (when (:fractal-tree options)
@@ -219,7 +220,7 @@
 
 (comment
   (excel/render-to-file
-        "Workbook1.xlsx"
+        "template_benchmark.xlsx"
         "template_trial.xlsx"
      {"SingleDS"
       [{:sheet-name "cool sheet"
