@@ -456,8 +456,8 @@
                     :else (inc index))
                   node-first? (> bigger-sibling-idx index) ; if true, `node` is left
                   merged (if node-first?
-                           (merge-node node (nth children bigger-sibling-idx))
-                           (merge-node (nth children bigger-sibling-idx) node))
+                           (merge-node node (resolve (nth children bigger-sibling-idx)))
+                           (merge-node (resolve (nth children bigger-sibling-idx)) node))
                   old-left-children (subvec children 0 (min index bigger-sibling-idx))
                   old-right-children (subvec children (inc (max index bigger-sibling-idx)))
                   old-left-keys (subvec keys 0 (min index bigger-sibling-idx))
