@@ -62,15 +62,18 @@
                                       [del-freq (gen/tuple (gen/return :del)
                                                            (gen/no-shrink gen/int))]])
                                    num-ops)]
-                  (let [b-tree (reduce (fn [t [op x]]
+                  (let [[b-tree s] (reduce (fn [[t s] [op x]]
                                          (let [x-reduced (mod x universe-size)]
                                            (condp = op
-                                             :add (msg/insert t x-reduced)
-                                             :del (msg/delete t x-reduced))))
-                                       (core/b-tree (core/->Config 3 3 2))
+                                             :add [(msg/insert t x-reduced)
+                                                   (conj s x-reduced)]
+                                             :del [(msg/delete t x-reduced)
+                                                   (disj s x-reduced)])))
+                                       [(core/b-tree (core/->Config 3 3 2)) #{}]
                                        ops)]
   ;                  (println ops)
-                    (tree.core-test/check-node-is-balanced b-tree)))))
+                    (and (= (msg/lookup-fwd-iter b-tree -1) (sort s))
+                         (tree.core-test/check-node-is-balanced b-tree))))))
 
 (defspec test-few-keys-many-ops
   50
