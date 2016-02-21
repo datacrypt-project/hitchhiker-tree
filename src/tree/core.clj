@@ -138,7 +138,9 @@
                      (nippy/freeze-to-out! data-output keys)
                      (nippy/freeze-to-out! data-output cfg)
                      (nippy/freeze-to-out! data-output children)
-                     (nippy/freeze-to-out! data-output op-buf))
+                     ;;TODO apparently RRB-vectors don't freeze correctly;
+                     ;;we'll force it to a normal vector as a workaround
+                     (nippy/freeze-to-out! data-output (into [] op-buf)))
 
 (nippy/extend-thaw :b-tree/index-node
                    [data-input]
