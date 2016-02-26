@@ -12,7 +12,7 @@
   (testing "Basic searches"
     (let [data1 (data-node (->Config 3 3 2) (sorted-set 1 2 3 4 5))
           data2 (data-node (->Config 3 3 2) (sorted-set 6 7 8 9 10))
-          root (->IndexNode [5] [data1 data2] (promise) [] (->Config 3 3 2))]
+          root (->IndexNode [data1 data2] (promise) [] (->Config 3 3 2))]
       (is (= (lookup-key root -10) nil) "not found key")
       (is (= (lookup-key root 100) nil) "not found key")
       (dotimes [i 10]
@@ -20,7 +20,7 @@
   (testing "basic fwd iterator"
     (let [data1 (data-node (->Config 3 3 2) (sorted-set 1 2 3 4 5))
           data2 (data-node (->Config 3 3 2) (sorted-set 6 7 8 9 10))
-          root (->IndexNode [5] [data1 data2] (promise) [] (->Config 3 3 2))]
+          root (->IndexNode [data1 data2] (promise) [] (->Config 3 3 2))]
       (is (= (lookup-fwd-iter root 4) (range 4 11)))
       (is (= (lookup-fwd-iter root 0) (range 1 11))))))
 
@@ -56,16 +56,14 @@
 
 (deftest insert-test
   (let [data1 (data-node (->Config 3 3 2) (sorted-set 1 2 3 4))
-        root (->IndexNode [] [data1] (promise) [] (->Config 3 3 2))]
-    (clojure.pprint/pprint root)
-    (clojure.pprint/pprint (insert root 3))
+        root (->IndexNode [data1] (promise) [] (->Config 3 3 2))]
     (is (= (lookup-fwd-iter (insert root 3) -10) [1 2 3 4]))
     (are [x] (= (lookup-fwd-iter (insert root x) -10) (sort (conj [1 2 3 4] x)))
          0
          2.5
          5))
   (let [data1 (data-node (->Config 3 3 2) (sorted-set 1 2 3 4 5))
-        root (->IndexNode [] [data1] (promise) [] (->Config 3 3 2))]
+        root (->IndexNode [data1] (promise) [] (->Config 3 3 2))]
     (are [x y] (= (lookup-fwd-iter (insert root x) y)
                   (drop-while
                     #(< % y)

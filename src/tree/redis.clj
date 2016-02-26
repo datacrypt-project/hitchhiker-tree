@@ -51,7 +51,7 @@
     (let [run (delay
                 (loop [i 0]
                   (if (= i 1000)
-                    (do (println "total fail") (System/exit 1))
+                    (do (println "total fail") (throw (ex-info "total fail" {:key redis-key})))
                     (let [x (wcar {} (car/get redis-key))]
                       (if x
                         x
@@ -67,7 +67,7 @@
     [redis-key val]
     (swap! cache cache/miss redis-key val)))
 
-(def totally-fetch
+#_(def totally-fetch
   (memo/lru (fn [redis-key]
               (loop [i 0]
                 (if (= i 1000)
@@ -144,7 +144,7 @@
                         (for [child (:children node)
                               :let [child-key @(:storage-addr child)]]
                           child-key))))
-      (seed-cache! key node)
+      (seed-cache! key (doto (promise) (deliver node)))
       addr))
   (delete-addr [_ addr session]
     (wcar {} (car/del addr))

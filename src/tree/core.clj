@@ -92,7 +92,12 @@
 
 (declare data-node dirty!)
 
-(defrecord IndexNode [keys children storage-addr op-buf cfg]
+(defn index-node-keys
+  "Calculates the separating keys given the children of an index node"
+  [children]
+  (mapv last-key (butlast children)))
+
+(defrecord IndexNode [children storage-addr op-buf cfg]
   IResolve
   (dirty? [this] (not (realized? storage-addr)))
   (resolve [this] this) ;;TODO this is a hack for testing
@@ -106,36 +111,32 @@
     (< (count children) (:index-b cfg)))
   (split-node [this]
     (let [b (:index-b cfg)
-          median (nth keys (dec b))
+          median (nth (index-node-keys children) (dec b))
           [left-buf right-buf] (split-with #(not (pos? (compare (:key %) median)))
                                            ;;TODO this should use msg/affects-key
                                            (sort-by :key op-buf))]
-      (->Split (->IndexNode (subvec keys 0 (dec b))
-                            (subvec children 0 b)
+      (->Split (->IndexNode (subvec children 0 b)
                             (promise)
                             (vec left-buf)
                             cfg)
-               (->IndexNode (subvec keys b)
-                            (subvec children b)
+               (->IndexNode (subvec children b)
                             (promise)
                             (vec right-buf)
                             cfg)
-               median)))
+              median)))
   (merge-node [this other]
-    (->IndexNode (catvec (conj keys (last-key (peek children))) (:keys other))
-                 (catvec children (:children other))
+    (->IndexNode (catvec children (:children other))
                  (promise)
                  (catvec op-buf (:op-buf other))
                  cfg))
   (lookup [root key]
-    (let [x (Collections/binarySearch keys key compare)]
+    (let [x (Collections/binarySearch (index-node-keys children) key compare)]
       (if (neg? x)
         (- (inc x))
         x))))
 
 (nippy/extend-freeze IndexNode :b-tree/index-node
-                     [{:keys [storage-addr cfg keys children op-buf]} data-output]
-                     (nippy/freeze-to-out! data-output keys)
+                     [{:keys [storage-addr cfg children op-buf]} data-output]
                      (nippy/freeze-to-out! data-output cfg)
                      (nippy/freeze-to-out! data-output children)
                      ;;TODO apparently RRB-vectors don't freeze correctly;
@@ -144,11 +145,10 @@
 
 (nippy/extend-thaw :b-tree/index-node
                    [data-input]
-                   (let [keys (nippy/thaw-from-in! data-input)
-                         cfg (nippy/thaw-from-in! data-input)
+                   (let [cfg (nippy/thaw-from-in! data-input)
                          children (nippy/thaw-from-in! data-input)
                          op-buf (nippy/thaw-from-in! data-input)]
-                     (->IndexNode keys children nil op-buf cfg)))
+                     (->IndexNode children nil op-buf cfg)))
 
 (defn index-node?
   [node]
@@ -160,7 +160,7 @@
   (.write writer (if fully-qualified?
                    (pr-str IndexNode)
                    "IndexNode"))
-  (.write writer (str {:keys (:keys node)
+  (.write writer (str {:keys (index-node-keys (:children node))
                        :children (:children node)})))
 
 (defmethod print-method IndexNode
@@ -186,7 +186,7 @@
       :prefix "{" :suffix "}"
       (pp/pprint-logical-block
         (.write out ":keys ")
-        (pp/write-out (:keys node))
+        (pp/write-out (index-node-keys (:children node)))
         (pp/pprint-newline :linear))
       (pp/pprint-logical-block
         (.write out ":op-buf ")
@@ -405,7 +405,7 @@
       (if (empty? path)
         (if (overflow? node)
           (let [{:keys [left right median]} (split-node node)]
-            (->IndexNode [median] [left right] (promise) [] cfg))
+            (->IndexNode [left right] (promise) [] cfg))
           node)
         (let [index (peek path)
               {:keys [children keys] :as parent} (peek (pop path))]
@@ -414,13 +414,9 @@
             (let [{:keys [left right median]} (split-node node)
                   new-children (catvec (conj (subvec children 0 index)
                                              left right)
-                                       (subvec children (inc index)))
-                  new-keys (catvec (conj (subvec keys 0 index)
-                                         median)
-                                   (subvec keys index))]
+                                       (subvec children (inc index)))]
               (recur (-> parent
-                         (assoc :keys new-keys
-                                :children new-children)
+                         (assoc :children new-children)
                          (dirty!))
                      (pop (pop path))))
             (recur (-> parent
@@ -461,28 +457,22 @@
                            (merge-node node (resolve (nth children bigger-sibling-idx)))
                            (merge-node (resolve (nth children bigger-sibling-idx)) node))
                   old-left-children (subvec children 0 (min index bigger-sibling-idx))
-                  old-right-children (subvec children (inc (max index bigger-sibling-idx)))
-                  old-left-keys (subvec keys 0 (min index bigger-sibling-idx))
-                  old-right-keys (subvec keys (max index bigger-sibling-idx))]
+                  old-right-children (subvec children (inc (max index bigger-sibling-idx)))]
               (if (overflow? merged)
                 (let [{:keys [left right median]} (split-node merged)]
-                  (recur (->IndexNode (catvec (conj old-left-keys median)
-                                              old-right-keys)
-                                      (catvec (conj old-left-children left right)
+                  (recur (->IndexNode (catvec (conj old-left-children left right)
                                               old-right-children)
                                       (promise)
                                       op-buf
                                       cfg)
                          (pop (pop path))))
-                (recur (->IndexNode (catvec old-left-keys old-right-keys)
-                                    (catvec (conj old-left-children merged)
+                (recur (->IndexNode (catvec (conj old-left-children merged)
                                             old-right-children)
                                     (promise)
                                     op-buf
                                     cfg)
                        (pop (pop path)))))
-            (recur (->IndexNode keys
-                                (assoc children index node)
+            (recur (->IndexNode (assoc children index node)
                                 (promise)
                                 op-buf
                                 cfg)

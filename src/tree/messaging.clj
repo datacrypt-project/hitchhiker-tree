@@ -32,7 +32,7 @@
 (defmethod print-method InsertOp
   [op ^Writer writer]
   (.write writer "InsertOp")
-  (.write writer (str {:key (:key op)})))
+  (.write writer (str {:key (:key op) " - " (:tag op)})))
 
 (defmethod print-dup InsertOp
   [op ^Writer writer]
@@ -47,7 +47,7 @@
 (defmethod print-method DeleteOp
   [op ^Writer writer]
   (.write writer "DeleteOp")
-  (.write writer (str {:key (:key op)})))
+  (.write writer (str {:key (:key op)} " - " (:tag op))))
 
 (defmethod print-dup DeleteOp
   [op ^Writer writer]
@@ -64,6 +64,7 @@
   ([tree msgs]
    (let [deferred-ops (atom [])
          msg-buffers-propagated (enqueue tree msgs deferred-ops)]
+     ;(when (seq @deferred-ops) (println "appyling deferred ops" @deferred-ops))
      (reduce (fn [tree op]
                (apply-op-to-tree op tree))
              msg-buffers-propagated
@@ -82,28 +83,26 @@
            (update-in [:op-buf] into msgs))
        :else ; overflow, should be IndexNode
        (do (assert (core/index-node? tree))
+           ;(println "overflowing node" (:keys tree) "with buf" (:op-buf tree)
+           ;         "with new msgs" msgs
+           ;         )
            (loop [[child & children] (:children tree)
                   rebuilt-children []
                   msgs (vec (sort-by affects-key ;must be a stable sort 
                                      (concat (:op-buf tree) msgs)))]
-             (let [;; Do a binary search to which msgs belong child
-                   ;; and which msgs belong to the next child
-                   binsearch-result
-                   (Collections/binarySearch
-                     msgs
-                     {:key (core/last-key child)}
-                     (fn [x y]
-                       (core/compare (:key x) (:key y))))
-                   negative-binsearch-result (- (inc binsearch-result))
-
-                   ;; Which messages should we apply?
-                   [took-msgs extra-msgs]
-                   (if (neg? binsearch-result)
-                     [(subvec msgs 0 negative-binsearch-result) ;not found, exclusive
-                      (subvec msgs negative-binsearch-result)]
-                     [(subvec msgs 0 (inc binsearch-result)) ;found, inclusive
-                      (subvec msgs (inc binsearch-result))])
-
+             (let [took-msgs (into []
+                                   (take-while #(>= 0 (core/compare
+                                                        (affects-key %)
+                                                        (core/last-key child))))
+                                   msgs)
+                   extra-msgs (into []
+                                   (drop-while #(>= 0 (core/compare
+                                                        (affects-key %)
+                                                        (core/last-key child))))
+                                   msgs)
+                   ;_ (println "last-key:" (core/last-key child))
+                   ;_ (println "goes left:" took-msgs)
+                   ;_ (println "goes right:" extra-msgs)
                    on-the-last-child? (empty? children)
 
                    ;; Any changes to the current child?
@@ -129,7 +128,9 @@
 
 (defn insert
   [tree key]
-  (enqueue tree [(->InsertOp key)]))
+  (enqueue tree [(assoc (->InsertOp key)
+                        :tag (java.util.UUID/randomUUID)
+                        )]))
 
 (comment
   (defn trial
@@ -177,43 +178,7 @@
 ;;
 
 
-;; Do the lookup
-;; Get all operations in total order
-;; scan for all "interesting" operations
-;; apply those operations
-
-;;TODO we'll need to totally redo `apply-ops-in-path`
-;;luckily, here's the scoop on the algorithm:
-;;The idea is that once we've found a path, we now have a vector of data and
-;;the operations we've found along the path. All we need to do is combine those
-;;operations into the data-vector and we can finish our queries on the combined
-;;vector.
-;;
-;;You may think that you could just apply every operation on the path to the vector.
-;;This would only work for point queries--if you tried to do any sort of range query,
-;;you'd see anomalies like operations in the root node appearing in every datanode
-;;in the tree! So, we need to prune down all those operations into only the ones we
-;;should apply to this data node.
-;;
-;;The idea here is that we need to apply every operation which affects a key less
-;;than or equal to the data node's largest key to this node, while not applying
-;;operations which are less than or equal to its left sibling.
-;;
-;;Although the data-node may not have a direct left sibling, one of its parents
-;;could, so we must find the biggest left sibling's last key.
-;;
-;;We also need a special case to determine if we're the rightmost node, in which
-;;case we cannot ignore operations for keys bigger than our own.
-;;every 
-
 (defn apply-ops-in-path
-  "Takes time proportional to the # of operations to apply them directly
-   to the data node at the bottom. Each insert will be lg time into the data
-   node, and there are at most lg_b(n)*op-buf-max operations to be applied.
-
-   Returns a sorted vector which is the flushed version of the path's terminus
-   
-   TODO We could reduce this to only do ops of interest"
   [path]
   (if (= 1 (count path))
     (:children (peek path))
@@ -263,36 +228,13 @@
           ;;We include op if leq my left, and not if leq left's left
           ;;TODO we can't apply all ops, we should ensure to only apply ops whose keys are in the defined range, unless we're the last sibling
           ]
-      ; (println "left-sibs-min-last" left-sibs-min-last)
-      ; (println "is-last?" is-last?)
-      ; (println "expanding data node" data-node "with ops" correct-ops)
+      ;(println "left-sibs-min-last" left-sibs-min-last)
+      ;(println "is-last?" is-last?)
+      ;(println "expanding data node" data-node "with ops" correct-ops)
       (reduce (fn [coll op]
                 (apply-op-to-coll op coll))
               (:children data-node)
               correct-ops))))
-
-#_(clojure.pprint/pprint
-  (-> (core/insert (apply core/b-tree (range 30)) -1)
-  ;    (core/flush-tree) :tree
-      (enqueue [(->DeleteOp 0)])  
-      (enqueue [(->DeleteOp -2)])  
-      (enqueue [(->DeleteOp 50)])  
-      ;(enqueue [(->DeleteOp -4)])  
-      ;(enqueue [(->DeleteOp -5)]) ; tree is totally filled up here
-  ;    (enqueue [(->InsertOp -8)])
-      ))
-
-#_(clojure.pprint/pprint
-  (-> (core/insert (apply core/b-tree (range 6)) -1)
-  ;    (core/flush-tree) :tree
-      (enqueue [(->InsertOp -1)])  
-      (enqueue [(->InsertOp -2)])  
-      (enqueue [(->InsertOp 50)])  
-      (enqueue [(->InsertOp -4)])  
-      (enqueue [(->InsertOp -5)]) ; tree is totally filled up here
-  ;    (enqueue [(->InsertOp -8)])
-      ))
-
 
 (defn lookup
   [tree key]
@@ -309,21 +251,9 @@
 
 (defn delete
   [tree key]
-  (enqueue tree [(->DeleteOp key)]))
-
-(comment
-  (def my-tree (-> (apply core/b-tree (range 30))
-      (core/flush-tree) :tree
-      (enqueue [(->InsertOp 8.3)])  
-      (enqueue [(->InsertOp 6.7)])  
-      (enqueue [(->InsertOp 10.5)])  
-      (enqueue [(->InsertOp 10.6)])  
-      ;(enqueue [(->InsertOp -5)]) ; tree is totally filled up here
-  ;    (enqueue [(->InsertOp -8)])
-      )) 
-  (do (clojure.pprint/pprint my-tree)
-      (lookup-fwd-iter my-tree -100))
-  (lookup my-tree 50))
+  (enqueue tree [(assoc (->DeleteOp key)
+                        :tag (java.util.UUID/randomUUID)
+                        )]))
 
 (defn forward-iterator
   "Takes the result of a search and returns an iterator going
@@ -343,10 +273,3 @@
       (drop-while (fn [e]
                     (neg? (core/compare e key)))
                   (forward-iterator path)))))
-
-;;TODO implement the op-buf handling in delete in the core.clj
-;;op-buf should be sorted first by key, then by ops/order: use a sorted-map w/ vector vals; this would simplify in-buffer operator merging
-;;
-;;TODO needs testing--nothing is generatively shown to be working
-;;
-;;Should have both b & op-buf-size parameterizable--annoying refactor

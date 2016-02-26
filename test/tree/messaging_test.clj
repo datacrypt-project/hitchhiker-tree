@@ -50,6 +50,53 @@
                 (let [b-tree (reduce msg/insert (core/b-tree (core/->Config 200 220 17)) the-set)]
                   (tree.core-test/check-node-is-balanced b-tree))))
 
+;; This test will show how if you apply killerop to the b-tree result, it corrupts
+;; the tree by losing track of the element 20
+(comment
+  (let [split-idx (+ 125 #_270)
+        all-ops (->> (read-string (slurp "broken-data.edn"))
+                     (map (fn [[op x]] [op (mod x 100000)])))
+        ops (->> all-ops
+                 (drop-last split-idx))
+        killer-op (->> all-ops
+                       (take-last split-idx)
+                       first)
+        killer-op-dos (->> all-ops
+                       (take-last split-idx)
+                       second)
+        ]
+    (let [[b-tree s] (reduce (fn [[t s] [op x]]
+                               (let [x-reduced (mod x 100000)]
+                                 (condp = op
+                                   :add [(msg/insert t x-reduced)
+                                         (conj s x-reduced)]
+                                   :del [(msg/delete t x-reduced)
+                                         (disj s x-reduced)])))
+                             [(core/b-tree (core/->Config 3 3 2)) #{}]
+                             ops)
+          f #(case (first %1) :add (msg/insert %2 (second %1))
+               :del (msg/delete %2 (second %1)))
+          ]
+      ;  (println ops)
+      (println killer-op) 
+      (clojure.pprint/pprint b-tree)
+      (println (msg/lookup-fwd-iter b-tree -1))
+      (println (sort s))
+      (def cool-test-tree b-tree)
+      ;; It appears that the insert op is leapfrogging the pending delete op
+      (clojure.pprint/pprint (f killer-op b-tree))
+      (println (msg/lookup-fwd-iter (f killer-op b-tree) -1))
+      (println (sort (disj s (second killer-op))))
+      (when killer-op-dos
+        (println killer-op-dos) 
+        (clojure.pprint/pprint (f killer-op-dos (f killer-op b-tree)))))
+    )
+  
+  (clojure.pprint/pprint cool-test-tree)
+  (clojure.pprint/pprint (msg/insert cool-test-tree 20))
+  (clojure.pprint/pprint (msg/delete cool-test-tree 32))
+  )
+
 (defn mixed-op-seq
   "Returns a property that ensures trees produced by a sequence of adds and deletes
    in the given ratio, with universe-size distinct values"
@@ -63,17 +110,37 @@
                                                            (gen/no-shrink gen/int))]])
                                    num-ops)]
                   (let [[b-tree s] (reduce (fn [[t s] [op x]]
-                                         (let [x-reduced (mod x universe-size)]
-                                           (condp = op
-                                             :add [(msg/insert t x-reduced)
-                                                   (conj s x-reduced)]
-                                             :del [(msg/delete t x-reduced)
-                                                   (disj s x-reduced)])))
-                                       [(core/b-tree (core/->Config 3 3 2)) #{}]
-                                       ops)]
-  ;                  (println ops)
-                    (and (= (msg/lookup-fwd-iter b-tree -1) (sort s))
+                                             (let [x-reduced (mod x universe-size)]
+                                               (condp = op
+                                                 :add [(msg/insert t x-reduced)
+                                                       (conj s x-reduced)]
+                                                 :del [(msg/delete t x-reduced)
+                                                       (disj s x-reduced)])))
+                                           [(core/b-tree (core/->Config 3 3 2)) #{}]
+                                           ops)]
+                    ;                  (println ops)
+                    (and (= (msg/lookup-fwd-iter b-tree -1) (seq (sort s)))
                          (tree.core-test/check-node-is-balanced b-tree))))))
+
+(comment
+  (let [data (read-string (slurp "broken-data2.edn"))
+        universe-size 1000
+        ]
+    (let [[b-tree s] (reduce (fn [[t s] [op x]]
+                               (let [x-reduced (mod x universe-size)]
+                                 (condp = op
+                                   :add [(msg/insert t x-reduced)
+                                         (conj s x-reduced)]
+                                   :del [(msg/delete t x-reduced)
+                                         (disj s x-reduced)])))
+                             [(core/b-tree (core/->Config 3 3 2)) #{}]
+                             data)]
+      ;                  (println ops)
+      (println (msg/lookup-fwd-iter b-tree -1))
+      (println (sort s))
+           )
+    )
+  )
 
 (defspec test-few-keys-many-ops
   50

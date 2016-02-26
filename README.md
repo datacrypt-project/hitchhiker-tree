@@ -8,6 +8,37 @@ Support included for Redis.
 
 FIXME
 
+## Still need to do
+
+Comparative benchmark modes--apples to apples (by params) and everything vs. one trial
+This will help guide optimization work
+
+Figure out where the huge spikes in operation time come from (tiered resizing?)
+
+We need a more thorough set of tests for the messaging system to saturate deletes, to ensure we don't have more lurking bugs
+
+Implementations of backwards scan, pred, and succ
+
+Write the WAL, back with in-mem and redis, then add to benchmarks
+
+Write the root-finder
+
+Add values and make a public API
+
+Choose splits and sizes based on serialized results?
+
+benchmark dataset like (map + (repeatedly rand) (iterate #(+ 0.01 %) 0.0))
+that's a sliding random window, for some random moving write heavy region
+with lots of cold nodes
+
+The API will be:
+- Create a new, empty fractal tree (with a name)
+- Load a fractal tree from named address
+- Do an update to a fractal tree
+- Get a snapshot of a fractal tree (have fun iterating or making in-mem changes)
+- Store a fractal tree to a new place (clone)
+The idea is like cloneable db atoms
+
 ## Benchmark analysis
 
 From a cpu perspective, the basic B-tree is 4x slower than a `sorted-set`,
