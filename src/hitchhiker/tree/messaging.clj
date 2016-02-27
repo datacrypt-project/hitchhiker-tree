@@ -1,6 +1,6 @@
-(ns tree.messaging
+(ns hitchhiker.tree.messaging
   (:refer-clojure :exclude [subvec])
-  (:require [tree.core :as core]
+  (:require [hitchhiker.tree.core :as core]
             [clojure.pprint :as pp] 
             [clojure.core.rrb-vector :refer (catvec subvec)])
   (:import java.io.Writer

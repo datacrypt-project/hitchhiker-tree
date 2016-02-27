@@ -1,4 +1,4 @@
-(ns tree.core
+(ns hitchhiker.tree.core
   (:refer-clojure :exclude [compare resolve subvec])
   (:require [clojure.core.rrb-vector :refer (catvec subvec)]
             [taoensso.nippy :as nippy]

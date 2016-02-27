@@ -1,8 +1,8 @@
-(ns tree.messaging-test
+(ns hitchhiker.tree.messaging-test
   (:require [clojure.test :refer :all]
-            [tree.core :as core]
-            [tree.messaging :as msg]
-            [tree.core-test]
+            [hitchhiker.tree.core :as core]
+            [hitchhiker.tree.messaging :as msg]
+            [hitchhiker.tree.core-test]
             [clojure.test.check :as tc]
             [clojure.test.check.clojure-test :refer (defspec)]
             [clojure.test.check.generators :as gen]
@@ -42,13 +42,13 @@
   1000
   (prop/for-all [the-set (gen/vector (gen/no-shrink gen/int))]
                 (let [b-tree (reduce msg/insert (core/b-tree (core/->Config 3 3 2)) the-set)]
-                  (tree.core-test/check-node-is-balanced b-tree))))
+                  (hitchhiker.tree.core-test/check-node-is-balanced b-tree))))
 
 (defspec test-wider-balanced-after-many-inserts
   1000
   (prop/for-all [the-set (gen/vector (gen/no-shrink gen/int))]
                 (let [b-tree (reduce msg/insert (core/b-tree (core/->Config 200 220 17)) the-set)]
-                  (tree.core-test/check-node-is-balanced b-tree))))
+                  (hitchhiker.tree.core-test/check-node-is-balanced b-tree))))
 
 ;; This test will show how if you apply killerop to the b-tree result, it corrupts
 ;; the tree by losing track of the element 20
@@ -120,7 +120,7 @@
                                            ops)]
                     ;                  (println ops)
                     (and (= (msg/lookup-fwd-iter b-tree -1) (seq (sort s)))
-                         (tree.core-test/check-node-is-balanced b-tree))))))
+                         (hitchhiker.tree.core-test/check-node-is-balanced b-tree))))))
 
 (comment
   (let [data (read-string (slurp "broken-data2.edn"))

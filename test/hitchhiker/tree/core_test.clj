@@ -1,7 +1,7 @@
-(ns tree.core-test
+(ns hitchhiker.tree.core-test
   (:refer-clojure :exclude [compare resolve]) 
   (:require [clojure.test :refer :all]
-            [tree.core :refer :all]
+            [hitchhiker.tree.core :refer :all]
             [clojure.test.check :as tc]
             [clojure.test.check.clojure-test :refer (defspec)]
             [clojure.test.check.generators :as gen]

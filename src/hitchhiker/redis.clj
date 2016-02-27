@@ -1,12 +1,12 @@
-(ns tree.redis
+(ns hitchhiker.redis
   (:require [clojure.pprint :as pp]
             [taoensso.carmine :as car :refer (wcar)]
             [taoensso.nippy :as nippy]
-            [tree.core :as core]
+            [hitchhiker.tree.core :as core]
             [clojure.string :as str]
             [clojure.core.memoize :as memo]
             [clojure.core.cache :as cache]
-            [tree.messaging :as msg]))
+            [hitchhiker.tree.messaging :as msg]))
 
 ;;; Description of refcounting system in redis
 ;;; 

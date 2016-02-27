@@ -1,8 +1,12 @@
-# tree
+# Hitchhiker Tree
 
-A functionally persistent, serializable, off-heap fractal B tree.
+Hitchhiker trees are a newly invented datastructure, synthesizing fractal trees and functional data structures.
 
-Support included for Redis.
+They are a functionally persistent, serializable, off-heap fractal B tree.
+In the future, they'll also contain a mechanism to make statistical analytics blazingly fast, and column-store facilities.
+
+The first application for these data structures is as an off-heap functionally persistent sorted map.
+This map allows your applications to retain huge data structures in memory across process restarts.
 
 ## Usage
 

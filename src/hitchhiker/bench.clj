@@ -1,11 +1,11 @@
-(ns tree.bench
+(ns hitchhiker.bench
   (:require [clojure.pprint :as pp]
             [clojure.string :as str]
             [excel-templates.build :as excel]
             [clojure.tools.cli :refer (parse-opts)]
-            [tree.redis :as redis]
-            [tree.core :as core]
-            [tree.messaging :as msg])
+            [hitchhiker.redis :as redis]
+            [hitchhiker.tree.core :as core]
+            [hitchhiker.tree.messaging :as msg])
   (:import [java.io File FileWriter]))
 
 (defn generate-test-datasets
