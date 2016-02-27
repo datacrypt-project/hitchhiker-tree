@@ -366,35 +366,6 @@
     (when path
       (forward-iterator path key))))
 
-(def total (atom 0))
-(defmacro time!
-  [body]
-  `(let [before# (System/currentTimeMillis)
-         x# ~body
-         after# (System/currentTimeMillis)]
-     (swap! ~'total + (- after# before#))
-     x#))
-(println @total)
-;(require '[criterium.core :refer (quick-bench)])
-;It took 60s!  to insert all of rs into the b-tree below
-;Now it only takes 20 with the sorted sets
-;(def rs (repeatedly 1000000 rand))
-;(do (time (apply sorted-set rs)) nil)
-;(do (quick-bench (apply b-tree (->Config 70 80 10) rs)) nil)
-;43 ms (39 in insert)?
-;
-;(lookup-fwd-iter (b-tree (->Config 3 3 10) 1 2 3 4 5 6 7 8 9) 20)
-
-;(quick-bench (repeatedly 1000 rand)) ;25ns
-;(quick-bench (apply sorted-set (repeatedly 1000 rand))) ;1.5ms
-;(quick-bench (vec (sort (repeatedly 1000 rand)))) ;820us
-;
-;(quick-bench (-insertion-into-sorted-vector (vec (sort (repeatedly 1000 rand)))
-;                                            (rand))) ;870us
-;
-;(quick-bench (conj (apply sorted-set (repeatedly 1000 rand))
-;                   (rand))) ; 1.5ms
-
 (defn insert
   [{:keys [cfg] :as tree} key]
   (let [path (lookup-path tree key) ; don't care about the found key or its index
@@ -564,26 +535,3 @@
 ;; - Whatever the addr it returns, it should cache its resolve in-mem somehow
 ;; - The serialize a node & rollback a node functions should accept a "stats" object as well
 ;; - The "stats" object must be convertible to a summary or whatever at the end
-
-;; could make a redis backend using refcounting for nodes :)
-
-(comment
-  (clojure.pprint/pprint (apply b-tree (range 30)))
-
-  (let [t (:tree (flush-tree (apply b-tree (range 30))))
-        t' (reduce insert t [-7 100])]
-    (assert (= 0 (:writes (:stats (flush-tree t)))))
-    (assert (= (range 30) (lookup-fwd-iter t -1)))
-    (pp/pprint t)
-    (pp/pprint (insert t -7))
-    (pp/pprint t')
-    (pp/pprint (flush-tree t'))
-    (pp/pprint t')
-    )
-
-(Math/sqrt 300)
-
-  (:stats (flush-tree (apply b-tree (core/->Config 17 300 (- 300 17)) (range 1000000)) 
-                      (->RedisBackend)
-                      ))
-  )

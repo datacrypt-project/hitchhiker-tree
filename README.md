@@ -8,6 +8,19 @@ Support included for Redis.
 
 FIXME
 
+## Design of Redis session store
+
+How to ensure that backing data of trees exists as long as it's reachable?
+Need to have a time-based expiry on anonymous keys, with named keys as well
+Every new tree's root will be added with its timestamp to the list of anonymous roots
+We'll have a timer or something that decides when to delete trees from the anon list
+We'll also have a set of named roots, which are pointers to saved trees
+We'll build this system in the refcounting API
+
+The top level tree API will have you create a wrapped tree w/ a backend & start up bg expiry threads
+every n operations we'll flush the datastructure to the backend (should be made nonblocking)
+we'll also support a "save-as" operation on the tree
+
 ## Still need to do
 
 Comparative benchmark modes--apples to apples (by params) and everything vs. one trial

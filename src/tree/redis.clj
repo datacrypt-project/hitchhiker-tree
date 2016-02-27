@@ -8,6 +8,32 @@
             [clojure.core.cache :as cache]
             [tree.messaging :as msg]))
 
+;;; Description of refcounting system in redis
+;;; 
+;;; The refcounting system allows any key in redis to be managed
+;;; by refcounting. This refcounter doesn't do cycle protection, but
+;;; weakrefs would be very simple to add.
+;;;
+;;; To have a key point to another, we call add-refs with the pointer key
+;;; and list of pointee keys. Usually, the pointer key would be a struct
+;;; with children.
+;;;
+;;; Each key which is pointed to has an auxiliary key, which has the same name
+;;; but ends in :rc. This is an int of the refcount of the key; the system
+;;; deletes the key when its refcount reaches 0.
+;;;
+;;; Each key which is a pointer has an auxiliary key, which has the same name
+;;; but ends in :rl. This is the list of keys that we have a reference, or pointer, to.
+;;; rl=reflist. This list is used when the pointer is finally deleted--every
+;;; key which the pointer points to must have its refcount decremented, and if
+;;; any refcount reaches 0, that key must too be deleted.
+;;;
+;;; To reduce the frequency that keys are orphaned, we allow for new roots to
+;;; be marked by the new-root function. This function stores the given key as a
+;;; newly created root pointer, which is put onto a list with its creation time.
+;;; Somehow, we track when root pointers are older than a certain time, so that
+;;; we can delete them automatically.
+
 (defn add-refs
   [node-key children-keys]
   ;(println "Adding refs" node-key children-keys)
@@ -24,24 +50,75 @@
          node-key
          children-keys))
 
+(def drop-ref-lua
+  "The string of the drop-ref function in lua. Returns the code in a local
+   function with the named drop_ref"
+  (str/join \newline
+            ["local drop_ref = function (ref)"
+             "  local to_delete = { ref }"
+             "  while next(to_delete) ~= nil do"
+             "    local cur = table.remove(to_delete)"
+             "    if redis.call('decr', cur .. ':rc') <= 0 then"
+             "      local to_follow = redis.call('lrange', cur .. ':rl', 0, -1)"
+             "      for i = 1,#to_follow do"
+             "        table.insert(to_delete, to_follow[i])"
+             "      end"
+             "      redis.call('del', cur .. ':rl')"
+             "      redis.call('del', cur .. ':rc')"
+             "      redis.call('del', cur)"
+             "    end"
+             "  end"
+             "end"]))
+
 (defn drop-ref
   [key]
-  (car/lua (str/join \newline
-                     ["local to_delete = { _:my-key }"
-                      "while next(to_delete) ~= nil do"
-                      "  local cur = table.remove(to_delete)"
-                      "  if redis.call('decr', cur .. ':rc') <= 0 then"
-                      "    local to_follow = redis.call('lrange', cur .. ':rl', 0, -1)"
-                      "    for i = 1,#to_follow do"
-                      "      table.insert(to_delete, to_follow[i])"
-                      "    end"
-                      "    redis.call('del', cur .. ':rl')"
-                      "    redis.call('del', cur .. ':rc')"
-                      "    redis.call('del', cur)"
-                      "  end"
-                      "end"
-                      ])
+  (car/lua (str drop-ref-lua "\ndrop_ref(_:my-key)")
            {} {:my-key key}))
+
+(defn get-next-expiry
+  "Given the current time, returns the next expiry time"
+  [now]
+  (car/lua (str/join \newline
+                     [drop-ref-lua
+                      "local time_to_wait = 1"
+                      "repeat"
+                      "  local cur = redis.call('lindex', 'refcount:expiry', 0)"
+                      "  if cur then"
+                      "    local time, target_key, i = struct.unpack('Ls', cur)"
+                      "    time_to_wait = time - _:now"
+                      "    if time_to_wait <= 0 then"
+                      "      redis.call('lpop', 'refcount:expiry')"
+                      "      drop_ref(target_key)"
+                      "    end"
+                      "  else"
+                      "    time_to_wait = 1"
+                      "  end"
+                      "until time_to_wait > 0"
+                      "return time_to_wait"])
+             {} {:now now}))
+
+(defn start-expiry-thread
+  []
+  (.start (Thread. (fn [] (while true
+                            (->> (System/currentTimeMillis)
+                                 (get-next-expiry)
+                                 (wcar {})
+                                 (Thread/sleep)))))))
+
+(comment
+  (start-expiry-thread)
+
+  (wcar {} (add-to-expiry "foo" (+ (System/currentTimeMillis) 1000)))
+  )
+
+(defn add-to-expiry
+  "Takes a refcounting key and a time for that key to expire"
+  [key when-to-expire]
+  (car/lua (str/join \newline
+                     ["local data = struct.pack('Ls', _:when-to-expire, _:my-key)"
+                      "redis.call('incr', _:my-key .. ':rc')"
+                      "redis.call('rpush', 'refcount:expiry', data)"])
+           {} {:my-key key :when-to-expire when-to-expire}))
 
 (let [cache (-> {}
                 (cache/lru-cache-factory :threshold 10000)
@@ -269,7 +346,7 @@
         (car/del (str k e))))
 
   (do (wcar {} (car/set "foo" 22))
-      (wcar {} (car/set "foo:rc" 1))
+      ;(wcar {} (car/set "foo:rc" 1))
       (wcar {} (car/set "bar" 33))
       (wcar {} (car/set "baz" "onehundred"))
       (wcar {} (car/set "quux" "teply"))
