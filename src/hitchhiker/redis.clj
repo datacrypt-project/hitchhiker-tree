@@ -75,50 +75,54 @@
   (car/lua (str drop-ref-lua "\ndrop_ref(_:my-key)")
            {} {:my-key key}))
 
+;;TODO test the exiration stuff
 (defn get-next-expiry
   "Given the current time, returns the next expiry time"
   [now]
   (car/lua (str/join \newline
                      [drop-ref-lua
-                      "local time_to_wait = 1"
-                      "repeat"
-                      "  local cur = redis.call('lindex', 'refcount:expiry', 0)"
-                      "  if cur then"
-                      "    local time, target_key, i = struct.unpack('Ls', cur)"
-                      "    time_to_wait = time - _:now"
-                      "    if time_to_wait <= 0 then"
-                      "      redis.call('lpop', 'refcount:expiry')"
-                      "      drop_ref(target_key)"
-                      "    end"
-                      "  else"
-                      "    time_to_wait = 1"
+                      "local to_drop = redis.call('zrangebyscore', 'refcount:expiry', 0, _:now)"
+                      "for i=1,#to_drop do"
+                      "  redis.call('zrem', 'refcount:expiry', to_drop[i])"
+                      "  drop_ref(to_drop[i])"
+                      "end"
+                      "if redis.call('zcard', 'refcount:expiry') == 0 then"
+                      "  return 1"
+                      "else"
+                      "  local head = redis.call('zrange', 'refcount:expiry', 0, 0, 'WITHSCORES')"
+                      "  local head_time = head[2]"
+                      "  local time_to_sleep = head_time - _:now"
+                      "  if time_to_sleep < 0 then"
+                      "    time_to_sleep = 1"
                       "  end"
-                      "until time_to_wait > 0"
-                      "return time_to_wait"])
+                      "  return time_to_sleep"
+                      "end"])
              {} {:now now}))
 
-(defn start-expiry-thread
+(defn start-expiry-thread!
   []
-  (.start (Thread. (fn [] (while true
-                            (->> (System/currentTimeMillis)
-                                 (get-next-expiry)
-                                 (wcar {})
-                                 (Thread/sleep)))))))
-
-(comment
-  (start-expiry-thread)
-
-  (wcar {} (add-to-expiry "foo" (+ (System/currentTimeMillis) 1000)))
-  )
+  (doto (Thread. (fn []
+                   (while true
+                     (->> (System/currentTimeMillis)
+                          (get-next-expiry)
+                          (wcar {})
+                          (Thread/sleep)))))
+    (.setDaemon true)
+    (.start)))
 
 (defn add-to-expiry
   "Takes a refcounting key and a time for that key to expire"
   [key when-to-expire]
+  ;; Redis sorted sets us 64 bit floats, and the time only needs 41 bits
+  ;; 64 bit floats have 52 bit mantissas, so all is fine for the next century
   (car/lua (str/join \newline
-                     ["local data = struct.pack('Ls', _:when-to-expire, _:my-key)"
-                      "redis.call('incr', _:my-key .. ':rc')"
-                      "redis.call('rpush', 'refcount:expiry', data)"])
+                     ["redis.call('zadd', 'refcount:expiry', _:when-to-expire, _:my-key)"])
            {} {:my-key key :when-to-expire when-to-expire}))
+
+;; How we'll represent the timer-pointers
+;; We'll make a zset to store keys to expire by their time
+;; One function takes "now" as the arg & expires all the keys that should be expired, returning the time of the next key
+;; The other function takes now & a key, and adds the rc
 
 (let [cache (-> {}
                 (cache/lru-cache-factory :threshold 10000)
@@ -165,20 +169,8 @@
   core/IResolve
   (dirty? [_] false)
   (last-key [_] last-key)
-  (resolve [_] (let [x (-> (totally-fetch redis-key)
-                   (assoc :storage-addr (synthesize-storage-addr redis-key)))]
-                 ;(println "Deser:" x)
-                 (when (and (core/index-node? x)
-                            (some #(not (satisfies? msg/IOperation %)) (:op-buf x)))
-                   (println (str "Found a broken node, has " (count (:op-buf x)) " ops"))
-                   (println (str "The node data is " x))
-                   (println "the node's class is" (class x))
-                   (println "and it has keys" (:keys x))
-                   (println "And is it an index-node?" (core/index-node? x))
-                   (println "It came from" redis-key)
-                   (println (str "and " (:op-buf x))))
-                 x
-                 )))
+  (resolve [_] (-> (totally-fetch redis-key)
+                 (assoc :storage-addr (synthesize-storage-addr redis-key)))))
 
 (comment
   (:cfg (wcar {} (car/get "b89bb965-e584-45a2-9232-5b76bf47a21c")))
@@ -205,6 +197,9 @@
   core/IBackend
   (new-session [_] (atom {:writes 0
                           :deletes 0}))
+  (anchor-root [_ {:keys [redis-key] :as node}]
+    (wcar {} (add-to-expiry redis-key (+ 5000 (System/currentTimeMillis))))
+    node)
   (write-node [_ node session]
     (swap! session update-in [:writes] inc)
     (let [key (str (java.util.UUID/randomUUID))

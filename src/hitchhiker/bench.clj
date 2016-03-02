@@ -211,8 +211,8 @@
         errors (exit 1 (error-msg errors)))
       (let [backend (case (:backend options)
                       "testing" (core/->TestingBackend)
-                      "redis" (redis/->RedisBackend
-                                #_(java.util.concurrent.Executors/newFixedThreadPool 4)))
+                      "redis" (do (redis/start-expiry-thread!)
+                                  (redis/->RedisBackend)))
             delete-xform (case (:delete-pattern options)
                            "forward" identity
                            "reverse" reverse

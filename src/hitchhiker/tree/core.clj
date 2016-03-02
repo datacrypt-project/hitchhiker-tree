@@ -507,11 +507,13 @@
 (defprotocol IBackend
   (new-session [backend] "Returns a session object that will collect stats")
   (write-node [backend node session] "Writes the given node to storage, returning its assigned address")
+  (anchor-root [backend node] "Tells the backend this is a temporary root")
   (delete-addr [backend addr session] "Deletes the given addr from storage"))
 
 (defrecord TestingBackend []
   IBackend
   (new-session [_] (atom {:writes 0}))
+  (anchor-root [_ root] root)
   (write-node [_ node session]
     (swap! session update-in [:writes] inc)
     (->TestingAddr (last-key node) node))
@@ -524,7 +526,7 @@
   ([tree backend]
    (let [session (new-session backend)
          flushed (flush-tree tree backend session)]
-       {:tree (resolve flushed) ; root should never be unresolved for API 
+       {:tree (resolve (anchor-root backend flushed)) ; root should never be unresolved for API
         :stats session}))
   ([tree backend stats]
    (if (dirty? tree)
