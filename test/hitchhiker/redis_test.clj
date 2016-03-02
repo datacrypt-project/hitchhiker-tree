@@ -21,7 +21,10 @@
                                     [del-freq (gen/tuple (gen/return :del)
                                                          (gen/no-shrink gen/int))]])
                                  num-ops)]
-                (assert (zero? (count (wcar {} (car/keys "*")))) "Start with no keys")
+                (assert (let [ks (wcar {} (car/keys "*"))]
+                          (or (empty? ks)
+                              (= ["refcount:expiry"] ks)))
+                        "Start with no keys")
                 (let [[b-tree root set]
                       (reduce (fn [[t root set] [op x]]
                                        (let [x-reduced (when x (mod x universe-size))]
@@ -38,7 +41,7 @@
                   #_(println "Make it to the end of a test, tree has" (count (msg/lookup-fwd-iter b-tree -1)) "keys left")
                   (let [res (= (msg/lookup-fwd-iter b-tree -1) (sort set))]
                     (wcar {} (redis/drop-ref root))
-                    (assert (zero? (count (wcar {} (car/keys "*")))) "End with no keys")
+                    (assert (= ["refcount:expiry"] (wcar {} (car/keys "*"))) "End with no keys")
                     res))))
 
 (defspec test-many-keys-bigger-trees

@@ -107,6 +107,7 @@
                           (get-next-expiry)
                           (wcar {})
                           (Thread/sleep)))))
+    (.setName "redis rc refcounting expirer")
     (.setDaemon true)
     (.start)))
 
@@ -254,84 +255,6 @@
 ;; There should also be a burn-in test to confirm
 ;; Will be easier for testing after we add KV. Then build a dataset to store there.
 ;;
-
-(comment
-  (def write-stats (atom []))
-  (def roots (atom []))
-  (def depth (atom []))
-
-  (println giant-tree)
-  (spit "writes.csv" (clojure.string/join "\n" (map :writes @write-stats)))
-  (println roots)
-  (println depth)
-  (/ (* 100000 (count @roots)) 1000000000.0)
-(/ 1000000000 10000)
-
-  (def giant-tree
-    (reduce (fn [tree [element index]]
-                      (let [tree (core/insert tree [element (quot index 1000)])
-                            {:keys [tree stats]} (if (zero? (mod index 1000))
-                                                   (core/flush-tree tree (->RedisBackend))
-                                                   {:tree tree})]
-                        (when stats
-                          (try
-                            (swap! depth conj (count (core/lookup-path tree 0)))
-                            (catch Exception e
-                              (clojure.pprint/pprint tree)
-                              (throw e)))
-                          (swap! write-stats conj @stats)
-                          (swap! roots conj (-> tree :storage-addr (deref 10 nil))))
-                        tree))
-                    (core/b-tree (core/->Config 500 700 30))
-                    (map vector #_(range) (repeatedly 1000000000 rand) (range))))
-
-  (def iters 100000000)
-  (println (first growth-flush-curve))
-  (count (msg/lookup-fwd-iter (create-tree-from-root-key (first growth-flush-curve)) -10))
-  (println "Total writes" (apply + (second growth-flush-curve)))
-  ;1258 for msg
-  ;1310 for core
-  (do
-    (def writes (atom []))
-    (def n-seq (atom []))
-    )
-        (spit "curve.csv" (clojure.string/join "\n" (map #(str %1 "," %2) @writes @n-seq)))
-  (deref writes)
-  (println growth-flush-curve)
-  (def growth-flush-curve
-    (future
-      (let [tree-atom (atom (core/b-tree (core/->Config 8 9 3)))]
-        (dotimes [i iters]
-          (let [sample? (zero? (mod i (quot iters 500)))
-                tree @tree-atom
-                {:keys [tree stats]} (if sample?
-                                       (-> tree
-                                           (msg/insert (str (rand)))
-                                           (core/flush-tree (->RedisBackend) #_(core/->TestingBackend)))
-                                       {:tree (msg/insert tree (str (rand)))})]
-            (reset! tree-atom tree)
-            (when stats
-              (swap! writes conj (:writes @stats))
-              (swap! n-seq conj i))))
-        [(-> @tree-atom :storage-addr deref) writes])))
-
-  (def t 
-    (core/flush-tree
-      (apply core/b-tree (core/->Config 5 3) (range 100)) (->RedisBackend)))
-
-  (clojure.pprint/pprint t)
-  (msg/lookup-fwd-iter (:tree t) -10)
-
-(require '[criterium.core :refer (quick-bench)])
-  (quick-bench (apply core/b-tree (core/->Config 70 80 10) (repeatedly 1000 rand)))
-
-  (time (core/flush-tree (time (reduce msg/insert
-                           (core/b-tree (core/->Config 17 300 (- 300 17)))
-                           (range 10000000))) 
-                   (->RedisBackend)
-                   ))
-  )
-
 (comment
 
 (do

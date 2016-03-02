@@ -86,9 +86,15 @@
   Object
   (compare [key1 key2] (clojure.core/compare key1 key2))
   Double
-  (compare [^Double key1 key2] (.compareTo key1 key2))
+  (compare [^Double key1 key2]
+    (if (instance? Double key2)
+      (.compareTo key1 key2)
+      (clojure.core/compare key1 key2)))
   Long
-  (compare [^Long key1 key2] (.compareTo key1 key2)))
+  (compare [^Long key1 key2]
+    (if (instance? Long key2)
+      (.compareTo key1 key2))
+    (clojure.core/compare key1 key2)))
 
 ;; TODO enforce that there always (= (count children) (inc (count keys)))
 ;;
