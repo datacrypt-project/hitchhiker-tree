@@ -4,6 +4,7 @@
             [taoensso.nippy :as nippy]
             [clojure.pprint :as pp])
   (:import java.io.Writer
+           java.util.Arrays
            java.util.Collections))
 
 (defrecord Config [index-b data-b op-buf-size])
@@ -83,7 +84,11 @@
 (extend-protocol IKeyCompare
   ;; By default, we use the default comparator
   Object
-  (compare [key1 key2] (clojure.core/compare key1 key2)))
+  (compare [key1 key2] (clojure.core/compare key1 key2))
+  Double
+  (compare [^Double key1 key2] (.compareTo key1 key2))
+  Long
+  (compare [^Long key1 key2] (.compareTo key1 key2)))
 
 ;; TODO enforce that there always (= (count children) (inc (count keys)))
 ;;
@@ -130,7 +135,12 @@
                  (catvec op-buf (:op-buf other))
                  cfg))
   (lookup [root key]
-    (let [x (Collections/binarySearch (index-node-keys children) key compare)]
+    ;;This is written like so because it's performance critical
+    (let [l (dec (count children))
+          a (object-array l)
+          _ (dotimes [i l]
+              (aset a i (last-key (nth children i))))
+          x (Arrays/binarySearch a 0 l key compare)]
       (if (neg? x)
         (- (inc x))
         x))))
@@ -215,8 +225,8 @@
   (underflow? [this]
     (< (count children) (:data-b cfg)))
   (split-node [this]
-    (->Split (data-node cfg (into (sorted-set) (take (:data-b cfg)) children))
-             (data-node cfg (into (sorted-set) (drop (:data-b cfg)) children))
+    (->Split (data-node cfg (into (sorted-set-by compare) (take (:data-b cfg)) children))
+             (data-node cfg (into (sorted-set-by compare) (drop (:data-b cfg)) children))
              (nth-of-set children (dec (:data-b cfg)))))
   (merge-node [this other]
     (data-node cfg (into children (:children other))))
@@ -369,7 +379,7 @@
 (defn insert
   [{:keys [cfg] :as tree} key]
   (let [path (lookup-path tree key) ; don't care about the found key or its index
-        {:keys [children] :or {children (sorted-set)}} (peek path)
+        {:keys [children] :or {children (sorted-set-by compare)}} (peek path)
         updated-data-node (data-node cfg (conj children key))]
     (loop [node updated-data-node
            path (pop path)]
@@ -402,7 +412,7 @@
 (defn delete
   [{:keys [cfg] :as tree} key]
   (let [path (lookup-path tree key) ; don't care about the found key or its index
-        {:keys [children] :or {children (sorted-set)}} (peek path)
+        {:keys [children] :or {children (sorted-set-by compare)}} (peek path)
         updated-data-node (data-node cfg (disj children key))]
     (loop [node updated-data-node
            path (pop path)]
@@ -451,7 +461,7 @@
 
 (defn b-tree
   [cfg & keys]
-  (reduce insert (data-node cfg (sorted-set)) keys))
+  (reduce insert (data-node cfg (sorted-set-by compare)) keys))
 
 (defrecord TestingAddr [last-key node]
   IResolve
