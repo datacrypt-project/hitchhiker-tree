@@ -197,13 +197,12 @@
               correct-ops))))
 
 (defn lookup
-  [tree key]
-  (let [path (core/lookup-path tree key)
-        expanded (apply-ops-in-path path)
-        i (Collections/binarySearch expanded key core/compare)]
-    (println expanded)
-    (when-not (neg? i)
-      (nth expanded i))))
+  ([tree key]
+   (lookup tree key nil))
+  ([tree key not-found]
+   (let [path (core/lookup-path tree key)
+         expanded (apply-ops-in-path path)]
+     (get expanded key not-found))))
 
 (defn insert
   [tree key value]

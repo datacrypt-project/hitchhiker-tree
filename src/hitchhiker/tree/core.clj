@@ -372,12 +372,14 @@
 
 (defn lookup-key
   "Given a B-tree and a key, gets an iterator into the tree"
-  [tree key]
-  (-> (lookup-path tree key)
-      (peek)
-      (resolve)
-      :children
-      (get key)))
+  ([tree key]
+   (lookup-key tree key nil))
+  ([tree key not-found]
+   (-> (lookup-path tree key)
+       (peek)
+       (resolve)
+       :children
+       (get key not-found))))
 
 (defn lookup-fwd-iter
   [tree key]
