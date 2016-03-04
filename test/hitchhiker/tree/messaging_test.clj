@@ -8,20 +8,28 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]))
 
+(defn insert
+  [t k]
+  (msg/insert t k k))
+
+(defn lookup-fwd-iter
+  [t v]
+  (seq (map first (msg/lookup-fwd-iter t v))))
+
 (defspec b-tree-sorts-uniques-random-int-vector
   1000
   (prop/for-all [v (gen/vector gen/int)]
                 (let [sorted-set-order (into (sorted-set) v)
-                      b-tree (reduce msg/insert (core/b-tree (core/->Config 3 3 2)) v)
-                      b-tree-order (msg/lookup-fwd-iter b-tree Integer/MIN_VALUE)]
+                      b-tree (reduce insert (core/b-tree (core/->Config 3 3 2)) v)
+                      b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)]
                   (= (seq sorted-set-order) b-tree-order))))
 
 (defspec test-insert
   1000
   (prop/for-all [v (gen/vector gen/int)]
                 (let [sorted-set-order (into (sorted-set) v)
-                      b-tree (reduce msg/insert (core/b-tree (core/->Config 3 3 2)) v)
-                      b-tree-order (msg/lookup-fwd-iter b-tree Integer/MIN_VALUE)]
+                      b-tree (reduce insert (core/b-tree (core/->Config 3 3 2)) v)
+                      b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)]
                   (= (seq sorted-set-order) b-tree-order)))) 
 
 (defspec test-delete2
@@ -30,24 +38,24 @@
                  num gen/nat]
                 (let [set-a (sort the-set)
                       set-b (take num the-set)
-                      b-tree (reduce msg/insert (core/b-tree (core/->Config 3 3 2)) set-a)
+                      b-tree (reduce insert (core/b-tree (core/->Config 3 3 2)) set-a)
                       b-tree-without (reduce msg/delete b-tree set-b)
-                      b-tree-order (msg/lookup-fwd-iter b-tree-without Integer/MIN_VALUE)]
+                      b-tree-order (lookup-fwd-iter b-tree-without Integer/MIN_VALUE)]
                   (= (seq (remove (set set-b) set-a)) b-tree-order))))
 
 ;(require '[clojure.pprint :refer (pprint)])
-;(pprint (reduce msg/delete (reduce msg/insert (core/b-tree (core/->Config 3 3 2)) [0 5 2 1 4 -1 3]) [0 5]))
+;(pprint (reduce msg/delete (reduce insert (core/b-tree (core/->Config 3 3 2)) [0 5 2 1 4 -1 3]) [0 5]))
 
 (defspec test-balanced-after-many-inserts
   1000
   (prop/for-all [the-set (gen/vector (gen/no-shrink gen/int))]
-                (let [b-tree (reduce msg/insert (core/b-tree (core/->Config 3 3 2)) the-set)]
+                (let [b-tree (reduce insert (core/b-tree (core/->Config 3 3 2)) the-set)]
                   (hitchhiker.tree.core-test/check-node-is-balanced b-tree))))
 
 (defspec test-wider-balanced-after-many-inserts
   1000
   (prop/for-all [the-set (gen/vector (gen/no-shrink gen/int))]
-                (let [b-tree (reduce msg/insert (core/b-tree (core/->Config 200 220 17)) the-set)]
+                (let [b-tree (reduce insert (core/b-tree (core/->Config 200 220 17)) the-set)]
                   (hitchhiker.tree.core-test/check-node-is-balanced b-tree))))
 
 ;; This test will show how if you apply killerop to the b-tree result, it corrupts
@@ -68,24 +76,24 @@
     (let [[b-tree s] (reduce (fn [[t s] [op x]]
                                (let [x-reduced (mod x 100000)]
                                  (condp = op
-                                   :add [(msg/insert t x-reduced)
+                                   :add [(insert t x-reduced)
                                          (conj s x-reduced)]
                                    :del [(msg/delete t x-reduced)
                                          (disj s x-reduced)])))
                              [(core/b-tree (core/->Config 3 3 2)) #{}]
                              ops)
-          f #(case (first %1) :add (msg/insert %2 (second %1))
+          f #(case (first %1) :add (insert %2 (second %1))
                :del (msg/delete %2 (second %1)))
           ]
       ;  (println ops)
       (println killer-op) 
       (clojure.pprint/pprint b-tree)
-      (println (msg/lookup-fwd-iter b-tree -1))
+      (println (lookup-fwd-iter b-tree -1))
       (println (sort s))
       (def cool-test-tree b-tree)
       ;; It appears that the insert op is leapfrogging the pending delete op
       (clojure.pprint/pprint (f killer-op b-tree))
-      (println (msg/lookup-fwd-iter (f killer-op b-tree) -1))
+      (println (lookup-fwd-iter (f killer-op b-tree) -1))
       (println (sort (disj s (second killer-op))))
       (when killer-op-dos
         (println killer-op-dos) 
@@ -93,7 +101,7 @@
     )
   
   (clojure.pprint/pprint cool-test-tree)
-  (clojure.pprint/pprint (msg/insert cool-test-tree 20))
+  (clojure.pprint/pprint (insert cool-test-tree 20))
   (clojure.pprint/pprint (msg/delete cool-test-tree 32))
   )
 
@@ -112,14 +120,14 @@
                   (let [[b-tree s] (reduce (fn [[t s] [op x]]
                                              (let [x-reduced (mod x universe-size)]
                                                (condp = op
-                                                 :add [(msg/insert t x-reduced)
+                                                 :add [(insert t x-reduced)
                                                        (conj s x-reduced)]
                                                  :del [(msg/delete t x-reduced)
                                                        (disj s x-reduced)])))
                                            [(core/b-tree (core/->Config 3 3 2)) #{}]
                                            ops)]
                     ;                  (println ops)
-                    (and (= (msg/lookup-fwd-iter b-tree -1) (seq (sort s)))
+                    (and (= (lookup-fwd-iter b-tree -1) (seq (sort s)))
                          (hitchhiker.tree.core-test/check-node-is-balanced b-tree))))))
 
 (comment
@@ -129,14 +137,14 @@
     (let [[b-tree s] (reduce (fn [[t s] [op x]]
                                (let [x-reduced (mod x universe-size)]
                                  (condp = op
-                                   :add [(msg/insert t x-reduced)
+                                   :add [(insert t x-reduced)
                                          (conj s x-reduced)]
                                    :del [(msg/delete t x-reduced)
                                          (disj s x-reduced)])))
                              [(core/b-tree (core/->Config 3 3 2)) #{}]
                              data)]
       ;                  (println ops)
-      (println (msg/lookup-fwd-iter b-tree -1))
+      (println (lookup-fwd-iter b-tree -1))
       (println (sort s))
            )
     )

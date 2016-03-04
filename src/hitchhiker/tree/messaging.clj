@@ -17,27 +17,29 @@
   (apply-op-to-coll [op coll] "Applies the operation to the collection")
   (apply-op-to-tree [op tree] "Applies the operation to the tree"))
 
-(defrecord InsertOp [key]
+(defrecord InsertOp [key value]
   IOperation
   (affects-key [_] key)
-  (apply-op-to-coll [_ set] (conj set key))
-  (apply-op-to-tree [_ tree] (core/insert tree key)))
+  (apply-op-to-coll [_ map] (assoc map key value))
+  (apply-op-to-tree [_ tree] (core/insert tree key value)))
 
 (defrecord DeleteOp [key]
   IOperation
   (affects-key [_] key)
-  (apply-op-to-coll [_ set] (disj set key))
+  (apply-op-to-coll [_ map] (dissoc map key))
   (apply-op-to-tree [_ tree] (core/delete tree key)))
 
 (defmethod print-method InsertOp
   [op ^Writer writer]
   (.write writer "InsertOp")
-  (.write writer (str {:key (:key op) " - " (:tag op)})))
+  (.write writer (str {:key (:key op) :value (:value op) " - " (:tag op)})))
 
 (defmethod print-dup InsertOp
   [op ^Writer writer]
   (.write writer "(tree.messaging/->InsertOp ")
   (.write writer (pr-str (:key op)))
+  (.write writer ", ")
+  (.write writer (pr-str (:value op)))
   (.write writer ")"))
 
 (defmethod pp/simple-dispatch InsertOp
@@ -126,48 +128,6 @@
                      (core/dirty!))
                  (recur children (conj rebuilt-children new-child) extra-msgs)))))))))
 
-(defn insert
-  [tree key]
-  (enqueue tree [(assoc (->InsertOp key)
-                        :tag (java.util.UUID/randomUUID)
-                        )]))
-
-(comment
-  (defn trial
-    []
-    (let [tree (-> (apply core/b-tree (range 10000))
-                (core/flush-tree)
-                :tree)
-          new-keys (repeatedly 30 #(- (rand-int 1000) 500))
-          reg (-> (reduce core/insert tree new-keys)
-                  (core/flush-tree)
-                  :stats
-                  :writes)
-          op-bufs (-> (reduce insert tree new-keys)
-                      (core/flush-tree)
-                      :stats
-                      :writes)]
-      (float (/ op-bufs reg))))
-
-
-  (let [trials (sort (repeatedly 100 trial))]
-    (println "avg" (/ (apply + trials) (count trials)))
-    (doseq [quantile [0 24 49 74 99]]
-      (println "Quantile" quantile "was" (nth trials quantile))
-      )
-    )
-  )
-
-#_(clojure.pprint/pprint
-  (-> (apply core/b-tree (range 30))
-      (core/flush-tree) :tree
-      (enqueue [(->InsertOp -1)])  
-      (enqueue [(->InsertOp -2)])  
-      (enqueue [(->InsertOp 50)])  
-      (enqueue [(->InsertOp -4)])  
-      (enqueue [(->InsertOp -5)]) ; tree is totally filled up here
-      (enqueue [(->InsertOp -8)])
-      ))
 
 ;;TODO delete in core needs to stop using the index-node constructor to be more
 ;;careful about how we handle op-bufs during splits and merges.
@@ -246,8 +206,10 @@
       (nth expanded i))))
 
 (defn insert
-  [tree key]
-  (enqueue tree [(->InsertOp key)]))
+  [tree key value]
+  (enqueue tree [(assoc (->InsertOp key value)
+                        :tag (java.util.UUID/randomUUID)
+                        )]))
 
 (defn delete
   [tree key]
@@ -270,6 +232,6 @@
   [tree key]
   (let [path (core/lookup-path tree key)]
     (when path
-      (drop-while (fn [e]
-                    (neg? (core/compare e key)))
+      (drop-while (fn [[k v]]
+                    (neg? (core/compare k key)))
                   (forward-iterator path)))))

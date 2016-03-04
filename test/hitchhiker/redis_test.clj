@@ -10,6 +10,14 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]))
 
+(defn insert
+  [t k]
+  (msg/insert t k k))
+
+(defn lookup-fwd-iter
+  [t v]
+  (seq (map first (msg/lookup-fwd-iter t v))))
+
 (defn mixed-op-seq
   "This is like the basic mixed-op-seq tests, but it also mixes in flushes to redis
    and automatically deletes the old tree"
@@ -34,12 +42,12 @@
                                                       (wcar {} (redis/drop-ref root)))
                                                     #_(println "flush")
                                                     [t @(:storage-addr t) set])
-                                           :add (do #_(println "add") [(msg/insert t x-reduced) root (conj set x-reduced)])
+                                           :add (do #_(println "add") [(insert t x-reduced) root (conj set x-reduced)])
                                            :del (do #_(println "del") [(msg/delete t x-reduced) root (disj set x-reduced)]))))
                                      [(core/b-tree (core/->Config 3 3 2)) nil #{}]
                                      ops)]
-                  #_(println "Make it to the end of a test, tree has" (count (msg/lookup-fwd-iter b-tree -1)) "keys left")
-                  (let [res (= (msg/lookup-fwd-iter b-tree -1) (sort set))]
+                  #_(println "Make it to the end of a test, tree has" (count (lookup-fwd-iter b-tree -1)) "keys left")
+                  (let [res (= (lookup-fwd-iter b-tree -1) (sort set))]
                     (wcar {} (redis/drop-ref root))
                     (assert (= ["refcount:expiry"] (wcar {} (car/keys "*"))) "End with no keys")
                     res))))
@@ -59,7 +67,7 @@
                 :add (conj t x-reduced)
                 :del (disj t x-reduced))))
           #{}
-          (drop-last 2 opseq)) (msg/lookup-fwd-iter (msg/delete test-tree -33) 0)))
+          (drop-last 2 opseq)) (lookup-fwd-iter (msg/delete test-tree -33) 0)))
   (:op-buf test-tree)
   (count (sort (reduce (fn [t [op x]]
             (let [x-reduced (when x (mod x 1000))]
@@ -77,7 +85,7 @@
                   (let [[b-tree s] (reduce (fn [[t s] [op x]]
                                          (let [x-reduced (mod x 100000)]
                                            (condp = op
-                                             :add [(msg/insert t x-reduced)
+                                             :add [(insert t x-reduced)
                                                    (conj s x-reduced)]
                                              :del [(msg/delete t x-reduced)
                                                    (disj s x-reduced)])))
@@ -88,7 +96,7 @@
                (map (fn [[op x]] [op (mod x 100000)]))
                (take-last  125)
                first)) 
-                    (println (msg/lookup-fwd-iter b-tree -1))
+                    (println (lookup-fwd-iter b-tree -1))
                     (println (sort s))
                     ))
 (defn trial []
@@ -103,7 +111,7 @@
                                                     (println "flushed")
                                                     [t @(:storage-addr t)])
                                            :add (do (println "about to add" x-reduced "...")
-                                                    (let [x [(msg/insert t x-reduced) root]]
+                                                    (let [x [(insert t x-reduced) root]]
                                                       (println "added") x
                                                       ))
                                            :del (do (println "about to del" x-reduced "...")
@@ -120,7 +128,7 @@
                                                         :add (conj t x-reduced)
                                                         :del (disj t x-reduced))))
                                                   #{}
-                                                  opseq) (msg/lookup-fwd-iter test-tree 0))))
+                                                  opseq) (lookup-fwd-iter test-tree 0))))
   (println "balanced?" (hitchhiker.tree.core-test/check-node-is-balanced test-tree))
                  (def my-root root)))
 
