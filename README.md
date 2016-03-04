@@ -10,7 +10,17 @@ This map allows your applications to retain huge data structures in memory acros
 
 ## Usage
 
-FIXME
+Run a benchmark by doing
+
+    lein run -m hitchhiker.bench OUTPUT_DIR options -- options-for-2nd-experiment -- options-for-3rd-experiment
+
+This generates excel workbooks with benchmark results.
+You can run many experiments simultaneously by passing `--` between options.
+For instance, if you'd like to run experiments to understand the performance difference between various values of B, you can do:
+
+    lein run -m hitchhiker.bench perf_diff_experiment -b 10 -- -b 20 -- -b 40 -- -b 80 -- -b 160 -- -b 320 -- -b 640
+
+And it will generate lots of data and analysis Excel workbooks.
 
 ## Design of Redis session store
 
