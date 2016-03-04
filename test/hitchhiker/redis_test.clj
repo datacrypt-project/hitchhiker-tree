@@ -47,9 +47,11 @@
                                      [(core/b-tree (core/->Config 3 3 2)) nil #{}]
                                      ops)]
                   #_(println "Make it to the end of a test, tree has" (count (lookup-fwd-iter b-tree -1)) "keys left")
-                  (let [res (= (lookup-fwd-iter b-tree -1) (sort set))]
+                  (let [b-tree-order (lookup-fwd-iter b-tree -1)
+                        res (= b-tree-order (seq (sort set)))]
                     (wcar {} (redis/drop-ref root))
                     (assert (= ["refcount:expiry"] (wcar {} (car/keys "*"))) "End with no keys")
+                    (assert res (str "These are unequal: " (pr-str b-tree-order) " " (pr-str (seq (sort set)))))
                     res))))
 
 (defspec test-many-keys-bigger-trees
