@@ -117,7 +117,8 @@
   ;; Redis sorted sets us 64 bit floats, and the time only needs 41 bits
   ;; 64 bit floats have 52 bit mantissas, so all is fine for the next century
   (car/lua (str/join \newline
-                     ["redis.call('zadd', 'refcount:expiry', _:when-to-expire, _:my-key)"])
+                     ["redis.call('incr', _:my-key .. ':rc')"
+                      "redis.call('zadd', 'refcount:expiry', _:when-to-expire, _:my-key)"])
            {} {:my-key key :when-to-expire when-to-expire}))
 
 ;; How we'll represent the timer-pointers
@@ -225,7 +226,7 @@
 
 (defn get-root-key
   [tree]
-  (-> tree :storage-addr (deref 10)))
+  (-> tree :storage-addr (deref 10 nil)))
 
 (defn create-tree-from-root-key
   [root-key]
