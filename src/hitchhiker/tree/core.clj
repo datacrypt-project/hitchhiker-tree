@@ -223,7 +223,11 @@
   (resolve [this] this) ;;TODO this is a hack for testing
   (dirty? [this] (not (realized? storage-addr)))
   (last-key [this]
-    (first (rseq children)))
+    (when (seq children)
+      (-> children
+          (rseq)
+          (first)
+          (key))))
   INode
   ;; Should have between b & 2b-1 children
   (overflow? [this]
@@ -231,13 +235,13 @@
   (underflow? [this]
     (< (count children) (:data-b cfg)))
   (split-node [this]
-    (->Split (data-node cfg (into (sorted-set-by compare) (take (:data-b cfg)) children))
-             (data-node cfg (into (sorted-set-by compare) (drop (:data-b cfg)) children))
+    (->Split (data-node cfg (into (sorted-map-by compare) (take (:data-b cfg)) children))
+             (data-node cfg (into (sorted-map-by compare) (drop (:data-b cfg)) children))
              (nth-of-set children (dec (:data-b cfg)))))
   (merge-node [this other]
     (data-node cfg (into children (:children other))))
   (lookup [root key]
-    (let [x (Collections/binarySearch (vec children) key compare)]
+    (let [x (Collections/binarySearch (vec (keys children)) key compare)]
       (if (neg? x)
         (- (inc x))
         x))))
@@ -373,8 +377,7 @@
       (peek)
       (resolve)
       :children
-      (subseq >= key <= key)
-      first))
+      (get key)))
 
 (defn lookup-fwd-iter
   [tree key]
@@ -383,10 +386,10 @@
       (forward-iterator path key))))
 
 (defn insert
-  [{:keys [cfg] :as tree} key]
-  (let [path (lookup-path tree key) ; don't care about the found key or its index
-        {:keys [children] :or {children (sorted-set-by compare)}} (peek path)
-        updated-data-node (data-node cfg (conj children key))]
+  [{:keys [cfg] :as tree} key value]
+  (let [path (lookup-path tree key)
+        {:keys [children] :or {children (sorted-map-by compare)}} (peek path)
+        updated-data-node (data-node cfg (assoc children key value))]
     (loop [node updated-data-node
            path (pop path)]
       (if (empty? path)
@@ -418,8 +421,8 @@
 (defn delete
   [{:keys [cfg] :as tree} key]
   (let [path (lookup-path tree key) ; don't care about the found key or its index
-        {:keys [children] :or {children (sorted-set-by compare)}} (peek path)
-        updated-data-node (data-node cfg (disj children key))]
+        {:keys [children] :or {children (sorted-map-by compare)}} (peek path)
+        updated-data-node (data-node cfg (dissoc children key))]
     (loop [node updated-data-node
            path (pop path)]
       (if (empty? path)
@@ -466,8 +469,11 @@
                    (pop (pop path)))))))))
 
 (defn b-tree
-  [cfg & keys]
-  (reduce insert (data-node cfg (sorted-set-by compare)) keys))
+  [cfg & kvs]
+  (reduce (fn [t [k v]]
+            (insert t k v))
+          (data-node cfg (sorted-map-by compare))
+          (partition 2 kvs)))
 
 (defrecord TestingAddr [last-key node]
   IResolve
