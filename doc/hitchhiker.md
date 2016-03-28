@@ -2,3 +2,131 @@
 
 This document will attempt to sketch out the big ideas in the hitchhiker tree.
 It will also attempt to call out various locations in the implementation where features are built.
+
+## High-level understanding
+
+The goal of the hitchhiker tree is to wed three things: the query performance of a B-tree, the write performance of an append-only log, and convenience of a functional, persistent datastructure.
+Let's look at each of these in turn, before looking at how we'll unify them.
+
+### B+ trees win at queries
+
+You might remember an important theorem from data structures: the theoretically best-performing data structure for looking up sorted keys cannot be faster than O(log(n)).
+Since sorted trees provide a solution for this, we'll start with them.
+Now, a common sorted tree for this purpose is the Red-Black tree, whose actual query performance is 2\*log\_2(n) (the write performance is log\_2(n)).
+The factor of 2 comes from the partial imbalances (which are still amsymtotically balanced) that the algorithm allows, and the base 2 of the log comes from the fact that it's a binary search tree.
+
+A less popular sorted tree is the AVL tree--this tree achieves log\_2(n) query performance, at the cost of 2\*log\_2(n) for inserts.
+We can already see a pattern--although many trees reach the asymptotic bound, they differ significantly in their constant factors.
+
+The tree that the hitchhiker tree is based off of is the B+ tree, which achieve log\_b(n) query performance.
+Since `b` can be very large (on the order of 100s or 1000s), these trees are excellent for slower data medium.
+This is because each node can contain huge numbers of keys, meaning that by only keeping a tiny number of index nodes in memory, we can rapidly identify the location of the desired data on the slower medium.
+
+Unlike the above sorted trees (and B trees), B+ trees only store their data in their leaves.
+Their internal nodes only contain enough data to maintain the sort on the data structure.
+We'll come back to why we like B+ trees later on.
+
+### Event logs win at writing data
+
+Do you know the fastest way to write data?
+Append it to the end of the file.
+There's no pointers, no updating of data structures, no extra IO costs incurred.
+
+Unfortunately, to perform a query on an event log, we need to replay all the data to build a temporary data structure, which we can then query.
+That replay costs O(n), since it touches every event written.
+
+### Unifying B+ trees and event logs
+
+The first idea to understand is same as the core idea in the fractal tree: how can we combine the write performance of an event log with the query performance of a B+ tree?
+The answer is that we're going to "overlay" an event log on the B+ tree!
+
+The idea of the overlay is simple: each index node of the B+ tree will contain an event log.
+Whenever we write data, we'll just append the operation (insert or delete) to the end of the root index node's event log.
+In order to avoid the pitfall of appending every operation to an ever-growing event log (which would leave us stuck with linear queries), we'll put a limit on the number of events that fit in the log.
+Once the log has overflowed in the root, we'll split the events in that log, adding those events to the event logs of the children of that node.
+Eventually, the event log will overflow to a leaf node, at which point we'll actually do the insertion into the B+ tree.
+
+This process gives us several properties:
+
+- Most inserts are a single append to the root's event log
+- Although there are a linear number of events, nodes are exponentially less likely to overflow the deeper they are in the tree
+- All data needed for a query exists along a path of nodes between the root and a specific leaf node. Since the logs are constant in size, queries still only read log(n) nodes.
+
+Thus we dramatically improve the performance of insertions without hurting the IO cost of queries.
+
+### Functional Persistence
+
+Now that we get the sketch of how to combine event logs and B+ trees, let's see the beauty of making the whole thing functional and persistent!
+Since the combined B+/log data structure primarily only modifies nodes near the root, we can take advantage of the reduced modification to achieve reduced IO when persisting the tree.
+We can use the standard path-copying technique from functional, persistent data structures.
+This gives great performance, since the structure is designed to avoid needing to copy entire paths--most writes will only touch the root.
+Furthermore, we can batch many modifications together, and wait to flush the tree, in order to further batch IO.
+
+## Code Structure
+
+The hitchhiker tree's core implementation lives in 2 namespaces: `hitchhiker.tree.core` and `hitchhiker.tree.messaging`.
+`hitchhiker.tree.core` implements the B+ tree and its extensibility hooks; `hitchhiker.tree.messaging` adds the messaging layer (aka log) to the B+ tree from `core`.
+
+### Protocols
+
+In `hitchhiker.tree.core`, we have several important protocols:
+
+#### `hitchhiker.tree.core/IKeyCompare`
+
+This protocol should be extended to support custom key comparators.
+It's just like `clojure.core/compare`.
+
+#### `hitchhiker.tree.core/IResolve`
+
+This protocol is the functionality for a minimal node.
+Not only will every node implement this, but also backends will use this to implement stubs which automatically & lazily load the full node into memory during queries.
+
+`last-key` is used for searches, so that entire nodes can remain unloaded from memory when we only need their boundary key.
+
+`dirty?` is used to determine whether the IO layer would need to flush this node, or whether it already exists in the backing storage.
+
+`resolve` loads the node into memory--this could return itself (in the case of an already loaded node), or it could return a new object after waiting on some IO.
+
+#### `hitchhiker.tree.core/INode`
+
+This protocol implements a node fully in-memory.
+Generally, this shouldn't need to be re-implemented;
+however, if the hitchhiker was to be enhanced with key & value size awareness during splits and merges, you'd want to adjust the methods of this protocol.
+
+#### `hitchhiker.tree.core/IBackend`
+
+This protocol implements a backend for the tree.
+
+`new-session` returns a "session" object, which is a convenient way to capture backend-specific stats.
+
+`write-node` will write a a node to storage, returning the stub object which implements `IResolve` for that backend. It can record stats by mutating or logging to the session.
+
+`anchor-root` is called by the persistence functionality to ensure that the backend knows which nodes are roots; this is a hint to any sorts of garbage collectors.
+
+`delete-addr` removes the given node from storage.
+
+#### `hitchhiker.tree.messaging/IOperation`
+
+This protocol describes an operations to the tree.
+Currently, there are only `InsertOp` and `DeleteOp`, but arbitrary mutation is supported by the data structure.
+
+### Useful APIs
+
+`hitchhiker.tree.core/flush-tree`:
+
+This takes a tree, does a depth-first search to ensure each node's children are durably persisted before flushing the node itself. It returns the updated tree & the session under which the IO was performed. `flush-tree` does block on the writing IO--a future improvement would be to make that non-blocking.
+
+`hitchhiker.tree.messaging/enqueue`:
+
+This is the fundamental operation for adding to the event log in a hitchhiker tree.
+`enqueue` will handle the appending, overflow, and correct propagation of operations through the tree.
+
+`hitchhiker.tree.messaging/apply-ops-in-path`:
+
+This is the fundamental operation for reading from the event log in a hitchhiker tree.
+This finds all the relevant operations on the path to a leaf node, and returns the data
+that leaf node would contain if all the operations along the path were fully committed.
+This is conveniently designed to work on entire leaf nodes, so that iteration is as easy as using the same logic as a non-augmented B+ tree, and simply expanding each leaf node from the standard iteration.
+
+`lookup`, `insert`, `delete`, `lookup-fwd-iter`:
+These are the basic operation on hitchhiker trees. They correspond to `get`, `assoc`, `dissoc`, and `subseq` on sorted maps.

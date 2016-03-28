@@ -62,7 +62,6 @@
   (print op))
 
 (defn enqueue
-  "When enqueing "
   ([tree msgs]
    (let [deferred-ops (atom [])
          msg-buffers-propagated (enqueue tree msgs deferred-ops)]

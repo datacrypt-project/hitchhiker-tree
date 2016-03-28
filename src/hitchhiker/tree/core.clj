@@ -75,12 +75,6 @@
 ;; (based on proven data), and then send generated loads to check we stay within
 ;; our targets.
 
-;; TODO don't know what this protocol should be, or who should implement
-;; serialization/flushing-related code
-(defprotocol IBackend
-  (store-node [this node] "Returns a generated addr where the given node was stored")
-  (load-node [this addr] "Returns the node from the given addr"))
-
 (extend-protocol IKeyCompare
   ;; By default, we use the default comparator
   Object
