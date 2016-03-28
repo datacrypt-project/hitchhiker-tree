@@ -158,7 +158,7 @@
 (defn usage
   [options-summary]
   (str/join \newline
-            ["Usage: bench [options] output-dir"
+            ["Usage: bench output-dir [options] [-- [other-options]]*"
              ""
              "Options:"
              options-summary
@@ -194,7 +194,7 @@
     x))
 
 (defn -main
-  [root & args]
+  [& [root args]]
   (doseq [args (or (->> args
                         (partition-by #(= % "--"))
                         (map-indexed vector)
@@ -206,7 +206,10 @@
           tree-to-test (atom {})
           results (atom [])]
       (cond
-        (:help options) (exit 0 (usage summary))
+        (or (= "-h" root)
+            (= "--help" root)
+            (nil? root)
+            (:help options)) (exit 0 (usage summary))
         (not= (count arguments) 0) (exit 1 (usage summary))
         errors (exit 1 (error-msg errors)))
       (let [backend (case (:backend options)
