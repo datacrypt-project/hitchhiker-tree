@@ -48,7 +48,7 @@ it can accept transactions, provide snapshots for querying, and be cloned.
 
 ;; If you'd like, you can "fork" an outboard. Let's fork our outboard.
 ;; To fork, you must save a snapshot under a new name
-(def forked-outboard (ob/save-as (snapshot my-outboard) "forked-outboard"))
+(def forked-outboard (ob/save-as (ob/snapshot my-outboard) "forked-outboard"))
 
 ;; Now, we can transact into the snapshot, which will not affect other forks
 (ob/update! forked-outboard (fn [snapshot] (ob/delete snapshot "goodbye")))
@@ -57,7 +57,7 @@ it can accept transactions, provide snapshots for querying, and be cloned.
 (-> (ob/snapshot my-outboard)
     (ob/lookup "goodbye"))
 ;;=> "moon"
-(ob/snapshot forked-outboard
+(-> (ob/snapshot forked-outboard)
     (ob/lookup "goodbye"))
 ;;=> nil
 ```

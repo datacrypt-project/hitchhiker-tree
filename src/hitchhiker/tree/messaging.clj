@@ -139,7 +139,7 @@
 
 (defn apply-ops-in-path
   [path]
-  (if (= 1 (count path))
+  (if (>= 1 (count path))
     (:children (peek path))
     (let [ops (->> path
                    (into [] (comp (filter core/index-node?)
