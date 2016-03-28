@@ -5,7 +5,7 @@ It will also attempt to call out various locations in the implementation where f
 
 === High-level understanding
 
-The goal of the hitchhiker tree is to wed three things: the query performance of a B-tree, the write performance of an append-only log, and convenience of a functional, persistent datastructure.
+The goal of the hitchhiker tree is to wed three things: the query performance of a B+ tree, the write performance of an append-only log, and convenience of a functional, persistent datastructure.
 Let's look at each of these in turn, before looking at how we'll unify them.
 
 ==== B+ trees win at queries
@@ -50,7 +50,7 @@ This process gives us several properties:
 
 - Most inserts are a single append to the root's event log
 - Although there are a linear number of events, nodes are exponentially less likely to overflow the deeper they are in the tree
-- All data needed for a query exists along a path of nodes between the root and a specific leaf node. Since the logs are constant in size, queries still only read log(n) nodes.
+- All data needed for a query exists along a path of nodes between the root and a specific leaf node. Since the logs are constant in size, queries still only read `log(n)` nodes.
 
 Thus we dramatically improve the performance of insertions without hurting the IO cost of queries.
 
@@ -90,6 +90,11 @@ In `hitchhiker.tree.core`, we have several important protocols:
   Generally, this shouldn't need to be re-implemented;
   however, if the hitchhiker was to be enhanced with key & value size awareness during splits and merges, you'd want to adjust the methods of this protocol.
 
+`hitchhiker.tree.core/Config`::
+  This structure must be passed to the `hitchhiker.tree.core/b-tree` constructor, which is the only way to get a new tree.
+  The `index-b` is the fanout on index nodes; the `data-b` is the key & value fanout on data nodes, and the `op-buf-size` is the the size of the log at each index node.
+  The internet told me that choosing `sqrt(b)` for the `op-buf-size` and `b-sqrt(b)` for the `index-b` was a good idea, but who knows?
+
 `hitchhiker.tree.core/IBackend`::
   This protocol implements a backend for the tree.
 +
@@ -122,4 +127,10 @@ In `hitchhiker.tree.core`, we have several important protocols:
   This is conveniently designed to work on entire leaf nodes, so that iteration is as easy as using the same logic as a non-augmented B+ tree, and simply expanding each leaf node from the standard iteration.
 
 `lookup`, `insert`, `delete`, `lookup-fwd-iter`::
-  These are the basic operation on hitchhiker trees. They correspond to `get`, `assoc`, `dissoc`, and `subseq` on sorted maps.
+  These are the basic operations on hitchhiker trees.
+  There are implementations in `hitchhiker.tree.core` and `hitchhiker.tree.messaging` which leverage their respective tree variants.
+  They correspond to `get`, `assoc`, `dissoc`, and `subseq` on sorted maps.
+
+`hitchhiker.core.b-tree`::
+  This is how to make a new hitchhiker or B+ tree.
+  You should either use the above mutation functions on it from one or the other namespace; it probably won't work if you mix them.
