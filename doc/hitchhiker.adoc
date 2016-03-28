@@ -12,13 +12,13 @@ Let's look at each of these in turn, before looking at how we'll unify them.
 
 You might remember an important theorem from data structures: the theoretically best-performing data structure for looking up sorted keys cannot be faster than `O(log(n))`.
 Since sorted trees provide a solution for this, we'll start with them.
-Now, a common sorted tree for this purpose is the Red-Black tree, whose actual query performance is between `log`~`2`~`(n)` and `2*log`~`2`~`(n)` (the write performance is `log`~`2`~`(n)`).
+Now, a common sorted tree for this purpose is the Red-Black tree, whose actual query performance is between `log~2~(n)` and `2*log~2~(n)` (the write performance is `log~2~(n)`).
 The factor of 2 comes from the partial imbalances (which are still amsymtotically balanced) that the algorithm allows, and the base 2 of the log comes from the fact that it's a binary search tree.
 
-A less popular sorted tree is the AVL tree--this tree achieves `log`~`2`~`(n)` query performance, at the cost of always paying `2*log`~`2`~`(n)` for inserts.
+A less popular sorted tree is the AVL tree--this tree achieves `log~2~(n)` query performance, at the cost of always paying `2*log~2~(n)` for inserts.
 We can already see a pattern--although many trees reach the asymptotic bound, they differ significantly in their constant factors.
 
-The tree that the hitchhiker tree is based off of is the B+ tree, which achieve `log`~`b`~`(n)` query performance.
+The tree that the hitchhiker tree is based off of is the B+ tree, which achieve `log~b~(n)` query performance.
 Since `b` can be very large (on the order of 100s or 1000s), these trees are excellent for slower data medium.
 This is because each node can contain huge numbers of keys, meaning that by only keeping a tiny number of index nodes in memory, we can rapidly identify the location of the desired data on the slower medium.
 
