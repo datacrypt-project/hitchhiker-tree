@@ -108,7 +108,7 @@ If you'd like to see the options for the benchmarking tool, just run `lein bench
 
 ## Technical details
 
-See the `doc/` folder for technical details of the Redis garbage collection system.
+See the `doc/` folder for technical details of the hitchhiker tree and Redis garbage collection system.
 
 ## License
 

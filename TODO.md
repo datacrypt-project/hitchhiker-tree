@@ -15,4 +15,6 @@ benchmark dataset like (map + (repeatedly rand) (iterate #(+ 0.01 %) 0.0))
 that's a sliding random window, for some random moving write heavy region
 with lots of cold nodes
 
+Add async writes
+
 Add support for datascript
