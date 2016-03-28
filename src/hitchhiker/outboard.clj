@@ -89,6 +89,8 @@
 (defn destroy
   "Destroys the named outboard."
   [name]
+  (when-not (string? name)
+    (throw (ex-info "destroy takes the name of an outboard" {:name name})))
   (when (contains? @connection-registry name)
     (throw (ex-info "Cannot destroy outboard which is currently in use" {:name name})))
   (wcar {}
@@ -115,6 +117,8 @@
   "Frees the in-VM resources associated with the connection. The connection
    will no longer work."
   [conn]
+  (when-not (instance? OutboardConnection conn)
+    (throw (ex-info "close takes an outboard connection as an argument" {:conn conn})))
   (reset! (:close-signal conn) :shutdown)
   (.interrupt ^Thread @(:thread conn))
   (swap! connection-registry dissoc (:tree-name conn)))

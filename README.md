@@ -23,9 +23,10 @@ it can accept transactions, provide snapshots for querying, and be cloned.
 
 ;; We'll get a snapshot of the outboard's current state, which is empty for now
 ;; Note that snapshots are only valid for 5 seconds, but making a new snapshot is free
+;; It would be easy to write an "extend-life" function for snapshots
 (def first-snapshot (ob/snapshot my-outboard))
 
-;; This will only insert the pair "hello" "world" into the snapshot
+;; This will insert the pair "hello" "world" only into the snapshot
 (-> first-snapshot
     (ob/insert "hello" "world")
     (ob/lookup "hello"))
@@ -38,7 +39,7 @@ it can accept transactions, provide snapshots for querying, and be cloned.
 
 ;; We can insert some data into it via a transaction
 ;; The update! function is atomic, just like swap! for atoms
-;; update! will pass its transction function a snapshot of the tree
+;; update! will pass its transction function a snapshot of the outboard
 (ob/update! my-outboard (fn [snapshot] (ob/insert snapshot "goodbye" "moon")))
 
 ;; Since the insert was transacted, it persists
@@ -47,11 +48,11 @@ it can accept transactions, provide snapshots for querying, and be cloned.
 ;;=> "moon"
 
 ;; If you'd like, you can "fork" an outboard. Let's fork our outboard.
-;; To fork, you must save a snapshot under a new name
+;; To fork, you just save a snapshot under a new name
 (def forked-outboard (ob/save-as (ob/snapshot my-outboard) "forked-outboard"))
 
 ;; Now, we can transact into the snapshot, which will not affect other forks
-(ob/update! forked-outboard (fn [snapshot] (ob/delete snapshot "goodbye")))
+(ob/update! forked-outboard (fn [snapshot] (ob/insert snapshot "goodbye" "sun")))
 
 ;; As we can see:
 (-> (ob/snapshot my-outboard)
@@ -59,28 +60,35 @@ it can accept transactions, provide snapshots for querying, and be cloned.
 ;;=> "moon"
 (-> (ob/snapshot forked-outboard)
     (ob/lookup "goodbye"))
-;;=> nil
+;;=> "sun"
 ```
 
-See also:
+You should check out the docstrings/usage of these functions, too:
 
-- `close` will gracefully shut down an outboard
+- `close` will gracefully shut down an outboard connection
 - `open` will reopen an outboard (you can only create outboards which don't exist)
-- `destroy` will delete all data related to the outboard
+- `destroy` will delete all data related to the closed, named outboard
 - `lookup` and `lookup-fwd-iter` provide single and ordered sequence access to snapshots
 
 ## Background
 
-They are a functionally persistent, serializable, off-heap fractal B tree.
+Outboard is an off-heap functionally persistent sorted map.
+This map allows your applications to retain huge data structures in memory across process restarts.
+
+Outboard is the the first library to make use of hitchhiker trees.
+Hitchhiker trees are a functionally persistent, serializable, off-heap fractal B tree.
 They can be extended to contain a mechanism to make statistical analytics blazingly fast, and to support column-store facilities.
 
-The first application for these data structures is as an off-heap functionally persistent sorted map.
-This map allows your applications to retain huge data structures in memory across process restarts.
+Details about hitchhiker trees can be found in `docs/hitchhiker.adoc`.
 
 ## Benchmarking
 
 This library includes a detailed, instrumented benchmarking suite.
 It's built to enable comparative benchmarks between different parameters or code changes, so that improvements to the structure can be correctly categorized as such, and bottlenecks can be reproduced and fixed.
+
+To try it, just run
+
+    lein bench
 
 The benchmark tool supports testing with different parameters, such as:
 
@@ -93,7 +101,7 @@ The benchmarking tool is designed to make it convenient to run several benchmark
 each benchmark's parameters can be separate by a `--`.
 This makes it easy to understand the characteristics of the hitchhiker tree over a variety of settings for a parameter.
 
-You can run a benchmark by doing
+You can run a more sophisticated experiment benchmark by doing
 
     lein bench OUTPUT_DIR options -- options-for-2nd-experiment -- options-for-3rd-experiment
 
