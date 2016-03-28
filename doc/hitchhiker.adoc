@@ -10,9 +10,9 @@ Let's look at each of these in turn, before looking at how we'll unify them.
 
 ### B+ trees win at queries
 
-You might remember an important theorem from data structures: the theoretically best-performing data structure for looking up sorted keys cannot be faster than latexmath:[%O(\log(n))$].
+You might remember an important theorem from data structures: the theoretically best-performing data structure for looking up sorted keys cannot be faster than `O(log(n))` ++O(log(n))++ +O(log(n))+.
 Since sorted trees provide a solution for this, we'll start with them.
-Now, a common sorted tree for this purpose is the Red-Black tree, whose actual query performance is 2\*log\_2(n) (the write performance is log\_2(n)).
+Now, a common sorted tree for this purpose is the Red-Black tree, whose actual query performance is `2*log`~`2`~`(n)` (the write performance is log\_2(n)).
 The factor of 2 comes from the partial imbalances (which are still amsymtotically balanced) that the algorithm allows, and the base 2 of the log comes from the fact that it's a binary search tree.
 
 A less popular sorted tree is the AVL tree--this tree achieves log\_2(n) query performance, at the cost of 2\*log\_2(n) for inserts.
