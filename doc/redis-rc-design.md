@@ -1,30 +1,18 @@
 # Refcounting (RC) System for Redis
 
-One challenge in storage large amounts of off-heap data is deciding when data is old enough to delete.
+One challenge in storage large amounts of off-heap data is deciding when data is unreferenced and can be deleted.
 The hitchhiker tree is a functional data structure, which makes use of a variation of the classic technique of path-copying to reduce IO on updates.
-Unfortunately, path-copying relies on a garbage collector;
-thus, the need for this system.
+Path-copying relies on a garbage collector; thus, the need for this system.
 
 The system is written primarily as Lua scripts for Redis to ensure atomicity and portability.
 Since Redis has no API to set events in the future, a small amount of code must run on the client.
 Luckily, this code simple runs a Lua a script, sleeps for the amount of time returned by the script, and repeats this in a loop.
 
-## System Requirements and Limitation
-
-Importantly, this system currently doesn't support any method of cycle-detection or cycle-breaking.
-If you store a reference to a value without updating the bookkeeping structures,
-that value is eligible for collection.
-
-Collections are only triggered by the action of dropping a reference.
-
-In order to simplify the avoidance of memory leaks, the RC system also can be configured
-to automatically expire old data.
-Currently, data expires by default after 5 seconds, which is hardcoded in the `hitchhiker.redis.RedisBackend` implementation of `anchor-root`.
-
 ## Design
 
-Implicitly, for this garbage collector to work, we assume all keys are immutable.
+This garbage collector assumes all keys' references to other keys are immutable.
 It may be possible to allow mutation in the future, but the design doesn't currently support it.
+This system currently doesn't support any method of cycle-detection or cycle-breaking.
 
 We allow each key to refer to however many other keys it needs to keep alive.
 When a key has no more references, it is freed, along with anything it was keeping alive.
@@ -32,6 +20,7 @@ When a key has no more references, it is freed, along with anything it was keepi
 This system not only supports explicitly allocated & freed garbage collection roots (i.e. named values), it also supports implicitly expiring roots.
 Automatically expiring are great for garbage collected languages, when there's no guarantee of when a finalizer will run.
 By having the primitive of a root which expires, we can avoid memory leaks due to clients not explicitly freeing snapshots, which makes analytics simpler to write.
+Currently, data expires by default after 5 seconds, which is hardcoded in the `hitchhiker.redis.RedisBackend` implementation of `anchor-root`.
 
 ### Details
 
