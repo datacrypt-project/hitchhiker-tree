@@ -2,6 +2,16 @@
 
 Hitchhiker trees are a newly invented datastructure, synthesizing fractal trees and functional data structures.
 
+## What's in this Repository?
+
+The hitchhiker namespaces contain a complete implementation of a persistent, serializable, lazily-loaded hitchhiker tree.
+This is a sorted key-value datastructure, like a scalable, pluggable, incrementally serializable `sorted-map`.
+
+Outboard is a sample application for the hitchhiker tree.
+It includes an implementation of the IO subsystem backed by Redis, and it manages all of the incremental serialization and flushing.
+
+The hitchhiker tree is designed very similarly to how Datomic's backing trees must work--I would love to see integration with [DataScript](https://github.com/tonsky/datascript).
+
 ## Outboard
 
 Outboard is a simple API for your Clojure applications that enables you to make tens of gigabytes of local memory, far beyond what the JVM can manage.
@@ -105,12 +115,12 @@ You can run a more sophisticated experiment benchmark by doing
 
     lein bench OUTPUT_DIR options -- options-for-2nd-experiment -- options-for-3rd-experiment
 
-This generates excel workbooks with benchmark results.
+This generates an Excel workbooks called "analysis.xlsx" with benchmark results.
 For instance, if you'd like to run experiments to understand the performance difference between various values of B (the branching factor), you can do:
 
     lein bench perf_diff_experiment -b 10 -- -b 20 -- -b 40 -- -b 80 -- -b 160 -- -b 320 -- -b 640
 
-And it will generate lots of data and analysis Excel workbooks.
+And it will generate lots of data and the Excel workbook for analysis.
 
 If you'd like to see the options for the benchmarking tool, just run `lein bench`.
 

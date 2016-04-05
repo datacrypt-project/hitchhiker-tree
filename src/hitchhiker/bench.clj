@@ -34,9 +34,9 @@
 (defn sorted-set-repr
   "Returns a sorted set"
   []
-  {:structure (sorted-set)
-   :insert conj
-   :delete disj
+  {:structure (sorted-map)
+   :insert assoc
+   :delete dissoc
    :flush (fn [set]
             {:tree set
              :stats (atom {})})})
@@ -77,7 +77,7 @@
                              (flush tree))
             before (System/nanoTime)
             tree' (if inserting?
-                    (insert (or flushed-tree tree) x)
+                    (insert (or flushed-tree tree) x x)
                     (delete (or flushed-tree tree) x))
             after (System/nanoTime) 
             log-inserts (zero? (mod i' (quot n 100)))
@@ -135,7 +135,7 @@
     :validate [#(#{"forward" "reverse" "shuffle" "zero"} %) "Incorrect delete pattern"]
     ]
    [nil "--sorted-set" "Runs the benchmarks on a sorted set"]
-   ["-b" "--tree-width" "Determines the width of the trees. Fractal trees use sqrt(b) child pointers; the rest is for messages."
+   ["-b" "--tree-width WIDTH" "Determines the width of the trees. Fractal trees use sqrt(b) child pointers; the rest is for messages."
     :default 300
     :parse-fn #(Long. %)
     :validate [pos? "b must be positive"]]
@@ -186,79 +186,82 @@
   [pair-of-results-for-one-ds-config]
   (let [{:keys [tree ds freq n b results delete-pattern]}
         (first pair-of-results-for-one-ds-config)
-        x {;:sheet-name (str (name tree) " " ds " flushed every " freq)
-           0 [["Data Structure" (name tree) "" "n" n]]
+        x {0 [["Data Structure" (name tree) "" "n" n "" "Data Set" ds]]
            1 [["Flush Frequency" freq "" "b" b "" "delete pattern" delete-pattern]]
            [5 18] (make-template-for-one-tree-freq-combo pair-of-results-for-one-ds-config :insert)
            [22 35] (make-template-for-one-tree-freq-combo pair-of-results-for-one-ds-config :delete)}]
     x))
 
 (defn -main
-  [& [root args]]
-  (doseq [args (or (->> args
-                        (partition-by #(= % "--"))
-                        (map-indexed vector)
-                        (filter (comp even? first))
-                        (map second)
-                        (seq))
-                   [[]])] ; always do one iteration
-    (let [{:keys [options arguments errors summary]} (parse-opts args options)
-          tree-to-test (atom {})
-          results (atom [])]
-      (cond
-        (or (= "-h" root)
-            (= "--help" root)
-            (nil? root)
-            (:help options)) (exit 0 (usage summary))
-        (not= (count arguments) 0) (exit 1 (usage summary))
-        errors (exit 1 (error-msg errors)))
-      (let [backend (case (:backend options)
-                      "testing" (core/->TestingBackend)
-                      "redis" (do (redis/start-expiry-thread!)
-                                  (redis/->RedisBackend)))
-            delete-xform (case (:delete-pattern options)
-                           "forward" identity
-                           "reverse" reverse
-                           "shuffle" shuffle
-                           "zero" #(repeat (count %) 0.0))
-            [tree-name structure]
-            (case (:data-structure options)
-              "b-tree" ["b-tree" (core-b-tree (:tree-width options) backend)]
-              "fractal" ["fractal" (msg-b-tree (:tree-width options) backend)]
-              "sorted-set" ["sorted-set" (sorted-set-repr)])
-            flush-freq (:flush-freq options)
-            codename (str tree-name
-                          "__flush_"
-                          flush-freq
-                          "__b_"
-                          (:tree-width options)
-                          "__"
-                          (:backend options)
-                          "__n_"
-                          (:num-operations options)
-                          "__del_"
-                          (:delete-pattern options))]
-        (doseq [ds (generate-test-datasets)
-                :let [codename (str codename
-                                    "_"
-                                    (:name ds))
-                      out (create-output-dir
-                            root
-                            codename)
-                      _ (println "Doing" codename)
-                      bench-res (benchmark (:num-operations options) ds flush-freq structure out delete-xform)]]
-          (swap! results conj 
-                 {:tree tree-name
-                  :ds (:name ds)
-                  :freq flush-freq
-                  :n (:num-operations options)
-                  :b (:tree-width options)
-                  :delete-pattern (:delete-pattern options)
-                  :results bench-res}))
-        ;(println "results")
-        ;(clojure.pprint/pprint @results)
-        (excel/render-to-file
-          "template_benchmark.xlsx"
-          (.getPath (File. root (str codename "_analysis.xlsx")))
-          {"SingleDS"
-           (template-one-sheet @results)})))))
+  [& [root & args]]
+  (let [outputs (atom [])]
+    (doseq [args (or (->> args
+                          (partition-by #(= % "--"))
+                          (map-indexed vector)
+                          (filter (comp even? first))
+                          (map second)
+                          (seq))
+                     [[]])] ; always do one iteration
+      (let [{:keys [options arguments errors summary]} (parse-opts args options)
+            tree-to-test (atom {})
+            results (atom [])]
+        (cond
+          (or (= "-h" root)
+              (= "--help" root)
+              (nil? root)
+              (:help options)) (exit 0 (usage summary))
+          (not= (count arguments) 0) (exit 1 (usage summary))
+          errors (exit 1 (error-msg errors)))
+        (let [backend (case (:backend options)
+                        "testing" (core/->TestingBackend)
+                        "redis" (do (redis/start-expiry-thread!)
+                                    (redis/->RedisBackend)))
+              delete-xform (case (:delete-pattern options)
+                             "forward" identity
+                             "reverse" reverse
+                             "shuffle" shuffle
+                             "zero" #(repeat (count %) 0.0))
+              [tree-name structure]
+              (case (:data-structure options)
+                "b-tree" ["b-tree" (core-b-tree (:tree-width options) backend)]
+                "fractal" ["fractal" (msg-b-tree (:tree-width options) backend)]
+                "sorted-set" ["sorted-set" (sorted-set-repr)])
+              flush-freq (:flush-freq options)
+              codename (str tree-name
+                            "__flush_"
+                            flush-freq
+                            "__b_"
+                            (:tree-width options)
+                            "__"
+                            (:backend options)
+                            "__n_"
+                            (:num-operations options)
+                            "__del_"
+                            (:delete-pattern options))]
+          (doseq [ds (generate-test-datasets)
+                  :let [codename (str codename
+                                      "_"
+                                      (:name ds))
+                        out (create-output-dir
+                              root
+                              codename)
+                        _ (println "Doing" codename)
+                        bench-res (benchmark (:num-operations options) ds flush-freq structure out delete-xform)]]
+            (swap! results conj
+                   {:tree tree-name
+                    :ds (:name ds)
+                    :freq flush-freq
+                    :n (:num-operations options)
+                    :b (:tree-width options)
+                    :delete-pattern (:delete-pattern options)
+                    :results bench-res}))
+          ;(println "results")
+          ;(clojure.pprint/pprint @results)
+          (swap! outputs conj (template-one-sheet @results)))))
+    (excel/render-to-file
+      "template_benchmark.xlsx"
+      (.getPath (File. root "analysis.xlsx"))
+      {"SingleDS"
+       (map-indexed (fn [i s]
+                      (assoc s :sheet-name (str "Trial " (inc i))))
+                    @outputs)})))
