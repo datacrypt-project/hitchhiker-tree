@@ -104,6 +104,8 @@ In `hitchhiker.tree.core`, we have several important protocols:
 `anchor-root` is called by the persistence functionality to ensure that the backend knows which nodes are roots; this is a hint to any sorts of garbage collectors.
 +
 `delete-addr` removes the given node from storage.
++
+`TestingBackend` is a simple implementation of a backend which bypasses serialization and is entirely in memory. It can be a useful reference for the bare minimum implementation of a backend.
 
 `hitchhiker.tree.messaging/IOperation`::
   This protocol describes an operation to the tree.

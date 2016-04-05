@@ -5,12 +5,13 @@ Hitchhiker trees are a newly invented datastructure, synthesizing fractal trees 
 ## What's in this Repository?
 
 The hitchhiker namespaces contain a complete implementation of a persistent, serializable, lazily-loaded hitchhiker tree.
-This is a sorted key-value datastructure, like a scalable, pluggable, incrementally serializable `sorted-map`.
+This is a sorted key-value datastructure, like a scalable `sorted-map`.
+It can incrementally persist and automatically lazily load itself from any backing storewhich implements a simple protocol.
 
 Outboard is a sample application for the hitchhiker tree.
 It includes an implementation of the IO subsystem backed by Redis, and it manages all of the incremental serialization and flushing.
 
-The hitchhiker tree is designed very similarly to how Datomic's backing trees must work--I would love to see integration with [DataScript](https://github.com/tonsky/datascript).
+The hitchhiker tree is designed very similarly to how Datomic's backing trees must work--I would love to see integration with [DataScript](https://github.com/tonsky/datascript) for a fully open source [Datomic](http://www.datomic.com).
 
 ## Outboard
 
