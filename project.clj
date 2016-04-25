@@ -8,7 +8,7 @@
                  [org.clojure/core.memoize "0.5.8"]
                  [org.clojure/test.check "0.9.0"]
                  [org.clojure/tools.cli "0.3.3"]
-                 [com.infolace/excel-templates "0.3.2"]
+                 [com.infolace/excel-templates "0.3.3"]
                  [criterium "0.4.4"]
                  [com.taoensso/carmine "2.12.2"]
                  [org.clojure/core.rrb-vector "0.0.11"]])
