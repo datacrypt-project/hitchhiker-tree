@@ -135,3 +135,11 @@ In `hitchhiker.tree.core`, we have several important protocols:
 `hitchhiker.core.b-tree`::
   This is how to make a new hitchhiker or B+ tree.
   You should either use the above mutation functions on it from one or the other namespace; it probably won't work if you mix them.
+
+=== Related Work
+
+Hitchhiker trees are made persistent with the same method, path copying, [as used by Okasaki](https://www.cs.cmu.edu/~rwh/theses/okasaki.pdf)
+The improved write performance is made possible thanks to the same buffering technique as a [fractal tree index](https://en.wikipedia.org/wiki/Fractal_tree_index).
+As it turns out, after I implemented the fractal tree, I spoke with a former employee of Tokutek, a company that commercialized fractal tree indices.
+That person told me that we'd actually implemented fractal reads identically!
+This is funny because there's no documentation anywhere about how exactly you should structure your code to compute the query.

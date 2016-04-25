@@ -1,6 +1,6 @@
 # Hitchhiker Tree
 
-Hitchhiker trees are a newly invented datastructure, synthesizing fractal trees and functional data structures.
+Hitchhiker trees are a newly invented (by @dgrnbrg) datastructure, synthesizing fractal trees and functional data structures, to create fast, snapshottable, massively scalable databases.
 
 ## What's in this Repository?
 
@@ -90,7 +90,7 @@ Outboard is the the first library to make use of hitchhiker trees.
 Hitchhiker trees are a functionally persistent, serializable, off-heap fractal B tree.
 They can be extended to contain a mechanism to make statistical analytics blazingly fast, and to support column-store facilities.
 
-Details about hitchhiker trees can be found in `docs/hitchhiker.adoc`.
+Details about hitchhiker trees, including related work, can be found in `docs/hitchhiker.adoc`.
 
 ## Benchmarking
 
