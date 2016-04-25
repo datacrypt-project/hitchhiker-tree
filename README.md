@@ -129,6 +129,11 @@ If you'd like to see the options for the benchmarking tool, just run `lein bench
 
 See the `doc/` folder for technical details of the hitchhiker tree and Redis garbage collection system.
 
+## Gratitude
+
+Thanks to the early reviewers, Kovas Boguta & Leif Walsh.
+Also, thanks to Tom Faulhaber for making the Excel analysis awesome!
+
 ## License
 
 Copyright © 2016 David Greenberg
