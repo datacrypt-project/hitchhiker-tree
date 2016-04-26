@@ -138,8 +138,8 @@ In `hitchhiker.tree.core`, we have several important protocols:
 
 === Related Work
 
-Hitchhiker trees are made persistent with the same method, path copying, [as used by Okasaki](https://www.cs.cmu.edu/~rwh/theses/okasaki.pdf)
-The improved write performance is made possible thanks to the same buffering technique as a [fractal tree index](https://en.wikipedia.org/wiki/Fractal_tree_index).
+Hitchhiker trees are made persistent with the same method, path copying, https://www.cs.cmu.edu/~rwh/theses/okasaki.pdf[as used by Okasaki]
+The improved write performance is made possible thanks to the same buffering technique as a https://en.wikipedia.org/wiki/Fractal_tree_index[fractal tree index].
 As it turns out, after I implemented the fractal tree, I spoke with a former employee of Tokutek, a company that commercialized fractal tree indices.
 That person told me that we'd actually implemented fractal reads identically!
 This is funny because there's no documentation anywhere about how exactly you should structure your code to compute the query.
