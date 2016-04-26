@@ -79,7 +79,7 @@
             tree' (if inserting?
                     (insert (or flushed-tree tree) x x)
                     (delete (or flushed-tree tree) x))
-            after (System/nanoTime) 
+            after (System/nanoTime)
             log-inserts (zero? (mod i' (quot n 100)))
             updated-outputs (atom outputs)]
         (when log-inserts ;; 1000 pieces
@@ -129,7 +129,7 @@
     :validate [#(#{"fractal" "b-tree" "sorted-set"} %) "Data structure must be fractal, b-tree, or sorted set"]]
    [nil "--backend testing" "Runs the benchmark with the specified backend"
     :default "testing"
-    :validate [#(#{"redis" "testing"} %) "Backend must be redis or testing"]] 
+    :validate [#(#{"redis" "testing"} %) "Backend must be redis or testing"]]
    ["-d" "--delete-pattern PATTERN" "Specifies how the operations will be reordered on delete"
     :default "forward"
     :validate [#(#{"forward" "reverse" "shuffle" "zero"} %) "Incorrect delete pattern"]
