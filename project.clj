@@ -6,6 +6,7 @@
   :dependencies [[org.clojure/clojure "1.7.0"]
                  [org.clojure/core.memoize "0.5.8"]
                  [org.clojure/test.check "0.9.0"]]
+  :aliases {"bench" ["with-profile" "profiling" "run" "-m" "hitchhiker.bench"]}
   :profiles {:profiling
              {:main hitchhiker.bench
               :source-paths ["env/profiling"]
