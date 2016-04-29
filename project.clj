@@ -8,6 +8,7 @@
                  [com.taoensso/carmine "2.12.2"]
                  [org.clojure/core.rrb-vector "0.0.11"]]
   :aliases {"bench" ["with-profile" "profiling" "run" "-m" "hitchhiker.bench"]}
+  :jvm-opts ["-server" "-Xmx3700m" "-Xms3700m"]
   :profiles {:test
              {:dependencies [[org.clojure/test.check "0.9.0"]]}
              :profiling
