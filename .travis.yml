@@ -10,7 +10,7 @@ env:
     global:
         - BOOT_JVM_OPTIONS='-server -Xmx3700m -Xms3700m'
     matrix:
-        - TEST_CMD='boot test'
-        - TEST_CMD='boot bench -a "output --data-structure fractal -- --data-structure b-tree -- --data-structure sorted-set"'
-        - TEST_CMD='boot bench -a "output --delete-pattern forward -- --delete-pattern reverse -- --delete-pattern shuffle -- --delete-pattern zero"'
+        - TEST_CMD='./boot test'
+        - TEST_CMD='./boot bench -a "output --data-structure fractal -- --data-structure b-tree -- --data-structure sorted-set"'
+        - TEST_CMD='./boot bench -a "output --delete-pattern forward -- --delete-pattern reverse -- --delete-pattern shuffle -- --delete-pattern zero"'
 script: $TEST_CMD
