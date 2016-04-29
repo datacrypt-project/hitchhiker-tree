@@ -1,4 +1,6 @@
 language: clojure
+services:
+    - redis-server
 env:
     matrix:
         - TEST_CMD='lein test'
