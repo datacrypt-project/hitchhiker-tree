@@ -1,9 +1,15 @@
 language: clojure
+
+before_install:
+    - curl -fsSLo boot https://github.com/boot-clj/boot-bin/releases/download/latest/boot.sh
+    - chmod 755 boot
+
 services:
     - redis-server
 env:
-    matrix:
+    global:
         - BOOT_JVM_OPTIONS='-server -Xmx3700m -Xms3700m'
+    matrix:
         - TEST_CMD='boot test'
         - TEST_CMD='boot bench -a "output --data-structure fractal -- --data-structure b-tree -- --data-structure sorted-set"'
         - TEST_CMD='boot bench -a "output --delete-pattern forward -- --delete-pattern reverse -- --delete-pattern shuffle -- --delete-pattern zero"'
