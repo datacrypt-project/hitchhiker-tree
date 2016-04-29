@@ -28,7 +28,11 @@
 
   (let [bench-it (resolve 'hitchhiker.bench/-main)]
     (apply bench-it (clojure.string/split args #" "))))
-  
+
+(deftask test []
+  (set-env! :source-paths #(conj % "test"))
+  (bt/test))
+
 (task-options!
   pom {:project     'hitchhiker-tree
        :version     +version+
