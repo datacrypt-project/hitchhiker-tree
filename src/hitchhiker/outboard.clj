@@ -140,7 +140,7 @@
       (loop [tree (msg/insert tree k v)
              [k v & kvs] kvs]
         (if (and k v)
-          (msg/insert tree k v)
+          (recur (msg/insert tree k v) kvs)
           tree))
       (msg/insert tree k v))))
 

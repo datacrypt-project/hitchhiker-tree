@@ -6,7 +6,7 @@ Hitchhiker trees are a newly invented (by @dgrnbrg) datastructure, synthesizing 
 
 The hitchhiker namespaces contain a complete implementation of a persistent, serializable, lazily-loaded hitchhiker tree.
 This is a sorted key-value datastructure, like a scalable `sorted-map`.
-It can incrementally persist and automatically lazily load itself from any backing storewhich implements a simple protocol.
+It can incrementally persist and automatically lazily load itself from any backing store which implements a simple protocol.
 
 Outboard is a sample application for the hitchhiker tree.
 It includes an implementation of the IO subsystem backed by Redis, and it manages all of the incremental serialization and flushing.
