@@ -1,0 +1,7 @@
+language: clojure
+env:
+    matrix:
+        - TEST_CMD='lein test'
+        - TEST_CMD='lein bench output --data-structure fractal -- --data-structure b-tree -- --data-structure sorted-set'
+        - TEST_CMD='lein bench output -d forward -- --d reverse -- -d shuffle -- -d zero'
+script: $TEST_CMD
