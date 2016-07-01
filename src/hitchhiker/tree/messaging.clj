@@ -1,10 +1,9 @@
 (ns hitchhiker.tree.messaging
   (:refer-clojure :exclude [subvec])
-  (:require [hitchhiker.tree.core :as core]
+  (:require [clojure.core.rrb-vector :refer [catvec]]
             [clojure.pprint :as pp]
-            [clojure.core.rrb-vector :refer (catvec subvec)])
-  (:import java.io.Writer
-           java.util.Collections))
+            [hitchhiker.tree.core :as core])
+  (:import java.io.Writer))
 
 ;; An operation is an object with a few functions
 ;; 1. It has a function that it applies to the tree to apply its effect

@@ -1,8 +1,8 @@
 (ns hitchhiker.bench
   (:require [clojure.pprint :as pp]
             [clojure.string :as str]
+            [clojure.tools.cli :refer [parse-opts]]
             [excel-templates.build :as excel]
-            [clojure.tools.cli :refer (parse-opts)]
             [hitchhiker.redis :as redis]
             [hitchhiker.tree.core :as core]
             [hitchhiker.tree.messaging :as msg])

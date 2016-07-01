@@ -1,8 +1,8 @@
 (ns hitchhiker.outboard
   (:require [hitchhiker.redis :as redis]
             [hitchhiker.tree.core :as core]
-            [taoensso.carmine :as car :refer (wcar)]
-            [hitchhiker.tree.messaging :as msg])
+            [hitchhiker.tree.messaging :as msg]
+            [taoensso.carmine :as car :refer [wcar]])
   (:import [java.util.concurrent LinkedBlockingQueue TimeUnit]))
 
 ;;; API

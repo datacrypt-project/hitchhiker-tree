@@ -1,11 +1,10 @@
 (ns hitchhiker.tree.core
   (:refer-clojure :exclude [compare resolve subvec])
-  (:require [clojure.core.rrb-vector :refer (catvec subvec)]
-            [taoensso.nippy :as nippy]
-            [clojure.pprint :as pp])
+  (:require [clojure.core.rrb-vector :refer [catvec subvec]]
+            [clojure.pprint :as pp]
+            [taoensso.nippy :as nippy])
   (:import java.io.Writer
-           java.util.Arrays
-           java.util.Collections))
+           [java.util Arrays Collections]))
 
 (defrecord Config [index-b data-b op-buf-size])
 

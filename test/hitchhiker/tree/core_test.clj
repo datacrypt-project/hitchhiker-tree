@@ -1,11 +1,11 @@
 (ns hitchhiker.tree.core-test
   (:refer-clojure :exclude [compare resolve])
   (:require [clojure.test :refer :all]
-            [hitchhiker.tree.core :refer :all]
             [clojure.test.check :as tc]
-            [clojure.test.check.clojure-test :refer (defspec)]
+            [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
-            [clojure.test.check.properties :as prop]))
+            [clojure.test.check.properties :as prop]
+            [hitchhiker.tree.core :refer :all]))
 
 (deftest simple-read-only-behavior
   (testing "Basic searches"
