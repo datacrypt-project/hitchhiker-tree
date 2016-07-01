@@ -7,7 +7,6 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]))
 
-
 (deftest simple-read-only-behavior
   (testing "Basic searches"
     (let [data1 (data-node (->Config 3 3 2) (sorted-map 1 1 2 2 3 3 4 4 5 5))
