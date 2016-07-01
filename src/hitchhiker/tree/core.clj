@@ -29,7 +29,7 @@
   (underflow? [node] "Returns true if this node has too few elements")
   (merge-node [node other] "Combines this node with the other to form a bigger node. We assume they're siblings")
   (split-node [node] "Returns a Split object with the 2 nodes that we turned this into")
-  (lookup [node key] "Returns the child node which contains the given key")) 
+  (lookup [node key] "Returns the child node which contains the given key"))
 
 (defrecord Split [left right median])
 
@@ -357,7 +357,7 @@
               child (if (data-node? cur)
                       nil #_(nth-of-set (:children cur) index)
                       (-> (:children cur)
-                          ;;TODO what are the semantics for exceeding on the right? currently it's trunc to the last element 
+                          ;;TODO what are the semantics for exceeding on the right? currently it's trunc to the last element
                           (nth index (peek (:children cur)))
                           (resolve)))
               path' (conj path index child)]

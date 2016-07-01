@@ -99,7 +99,7 @@
       (println (->> (read-string (slurp "broken-data.edn"))
                     (map (fn [[op x]] [op (mod x 100000)]))
                     (take-last  125)
-                    first)) 
+                    first))
       (println (lookup-fwd-iter b-tree -1))
       (println (sort s))
       ))

@@ -9,7 +9,7 @@
             [hitchhiker.tree.messaging :as msg]))
 
 ;;; Description of refcounting system in redis
-;;; 
+;;;
 ;;; The refcounting system allows any key in redis to be managed
 ;;; by refcounting. This refcounter doesn't do cycle protection, but
 ;;; weakrefs would be very simple to add.
@@ -276,19 +276,19 @@
           e ["" ":rc" ":rs" ":rl"]]
     (println (str k e) "=" (wcar {} ((if (= e ":rl")
                                        #(car/lrange % 0 -1)
-                                       car/get) (str k e))))) 
+                                       car/get) (str k e)))))
   (wcar {} (drop-ref "foo"))
 
   (wcar {} (create-refcounted "foo" 22))
 
   (wcar {} (car/flushall))
-  (count (wcar {} (car/keys "*")))    
+  (count (wcar {} (car/keys "*")))
   (count (msg/lookup-fwd-iter (create-tree-from-root-key @(:storage-addr (:tree my-tree))) -1))
   (count (msg/lookup-fwd-iter (create-tree-from-root-key @(:storage-addr (:tree my-tree-updated))) -1))
   (def my-tree (core/flush-tree
                  (time (reduce msg/insert
                                (core/b-tree (core/->Config 17 300 (- 300 17)))
-                               (range 50000))) 
+                               (range 50000)))
                  (->RedisBackend)
                  ))
   (def my-tree-updated (core/flush-tree

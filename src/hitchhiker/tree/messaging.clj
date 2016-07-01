@@ -1,10 +1,10 @@
 (ns hitchhiker.tree.messaging
   (:refer-clojure :exclude [subvec])
   (:require [hitchhiker.tree.core :as core]
-            [clojure.pprint :as pp] 
+            [clojure.pprint :as pp]
             [clojure.core.rrb-vector :refer (catvec subvec)])
   (:import java.io.Writer
-           java.util.Collections)) 
+           java.util.Collections))
 
 ;; An operation is an object with a few functions
 ;; 1. It has a function that it applies to the tree to apply its effect
@@ -89,7 +89,7 @@
            ;         )
            (loop [[child & children] (:children tree)
                   rebuilt-children []
-                  msgs (vec (sort-by affects-key ;must be a stable sort 
+                  msgs (vec (sort-by affects-key ;must be a stable sort
                                      (concat (:op-buf tree) msgs)))]
              (let [took-msgs (into []
                                    (take-while #(>= 0 (core/compare
@@ -177,7 +177,7 @@
                             (drop-while #(>= 0 (core/compare (affects-key %)
                                                              left-sibs-min-last)))
                             identity)
-          data-node (peek path) 
+          data-node (peek path)
           my-last (core/last-key data-node)
           right-side-filter (if is-last?
                               identity
