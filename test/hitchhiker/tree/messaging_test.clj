@@ -1,12 +1,10 @@
 (ns hitchhiker.tree.messaging-test
-  (:require [clojure.test :refer :all]
-            [hitchhiker.tree.core :as core]
-            [hitchhiker.tree.messaging :as msg]
-            [hitchhiker.tree.core-test]
-            [clojure.test.check :as tc]
-            [clojure.test.check.clojure-test :refer (defspec)]
+  (:require [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
-            [clojure.test.check.properties :as prop]))
+            [clojure.test.check.properties :as prop]
+            [hitchhiker.tree.core :as core]
+            hitchhiker.tree.core-test
+            [hitchhiker.tree.messaging :as msg]))
 
 (defn insert
   [t k]
@@ -30,7 +28,7 @@
                 (let [sorted-set-order (into (sorted-set) v)
                       b-tree (reduce insert (core/b-tree (core/->Config 3 3 2)) v)
                       b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)]
-                  (= (seq sorted-set-order) b-tree-order)))) 
+                  (= (seq sorted-set-order) b-tree-order))))
 
 (defspec test-delete2
   1000
@@ -86,7 +84,7 @@
                :del (msg/delete %2 (second %1)))
           ]
       ;  (println ops)
-      (println killer-op) 
+      (println killer-op)
       (clojure.pprint/pprint b-tree)
       (println (lookup-fwd-iter b-tree -1))
       (println (sort s))
@@ -96,10 +94,10 @@
       (println (lookup-fwd-iter (f killer-op b-tree) -1))
       (println (sort (disj s (second killer-op))))
       (when killer-op-dos
-        (println killer-op-dos) 
+        (println killer-op-dos)
         (clojure.pprint/pprint (f killer-op-dos (f killer-op b-tree)))))
     )
-  
+
   (clojure.pprint/pprint cool-test-tree)
   (clojure.pprint/pprint (insert cool-test-tree 20))
   (clojure.pprint/pprint (msg/delete cool-test-tree 32))

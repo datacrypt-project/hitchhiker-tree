@@ -1,11 +1,10 @@
 (ns hitchhiker.tree.core
   (:refer-clojure :exclude [compare resolve subvec])
-  (:require [clojure.core.rrb-vector :refer (catvec subvec)]
-            [taoensso.nippy :as nippy]
-            [clojure.pprint :as pp])
+  (:require [clojure.core.rrb-vector :refer [catvec subvec]]
+            [clojure.pprint :as pp]
+            [taoensso.nippy :as nippy])
   (:import java.io.Writer
-           java.util.Arrays
-           java.util.Collections))
+           [java.util Arrays Collections]))
 
 (defrecord Config [index-b data-b op-buf-size])
 
@@ -29,7 +28,7 @@
   (underflow? [node] "Returns true if this node has too few elements")
   (merge-node [node other] "Combines this node with the other to form a bigger node. We assume they're siblings")
   (split-node [node] "Returns a Split object with the 2 nodes that we turned this into")
-  (lookup [node key] "Returns the child node which contains the given key")) 
+  (lookup [node key] "Returns the child node which contains the given key"))
 
 (defrecord Split [left right median])
 
@@ -357,7 +356,7 @@
               child (if (data-node? cur)
                       nil #_(nth-of-set (:children cur) index)
                       (-> (:children cur)
-                          ;;TODO what are the semantics for exceeding on the right? currently it's trunc to the last element 
+                          ;;TODO what are the semantics for exceeding on the right? currently it's trunc to the last element
                           (nth index (peek (:children cur)))
                           (resolve)))
               path' (conj path index child)]

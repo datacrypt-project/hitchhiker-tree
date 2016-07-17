@@ -1,12 +1,11 @@
 (ns hitchhiker.tree.core-test
-  (:refer-clojure :exclude [compare resolve]) 
+  (:refer-clojure :exclude [compare resolve])
   (:require [clojure.test :refer :all]
-            [hitchhiker.tree.core :refer :all]
             [clojure.test.check :as tc]
-            [clojure.test.check.clojure-test :refer (defspec)]
+            [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
-            [clojure.test.check.properties :as prop]))
-
+            [clojure.test.check.properties :as prop]
+            [hitchhiker.tree.core :refer :all]))
 
 (deftest simple-read-only-behavior
   (testing "Basic searches"
@@ -47,7 +46,7 @@
                 (let [sorted-set-order (into (sorted-set) v)
                       b-tree (reduce insert-helper (b-tree (->Config 3 3 2)) v)
                       b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)]
-                  (= (seq sorted-set-order) (seq (map first b-tree-order)))))) 
+                  (= (seq sorted-set-order) (seq (map first b-tree-order))))))
 
 (defspec test-delete2
   1000

@@ -1,14 +1,12 @@
 (ns hitchhiker.redis-test
-  (:require [clojure.test :refer :all]
-            [taoensso.carmine :as car :refer (wcar)]
-            [hitchhiker.tree.core :as core]
-            [hitchhiker.tree.messaging :as msg]
-            [hitchhiker.tree.core-test]
-            [hitchhiker.redis :as redis]
-            [clojure.test.check :as tc]
-            [clojure.test.check.clojure-test :refer (defspec)]
+  (:require [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
-            [clojure.test.check.properties :as prop]))
+            [clojure.test.check.properties :as prop]
+            [hitchhiker.redis :as redis]
+            [hitchhiker.tree.core :as core]
+            hitchhiker.tree.core-test
+            [hitchhiker.tree.messaging :as msg]
+            [taoensso.carmine :as car :refer [wcar]]))
 
 (defn insert
   [t k]
@@ -99,7 +97,7 @@
       (println (->> (read-string (slurp "broken-data.edn"))
                     (map (fn [[op x]] [op (mod x 100000)]))
                     (take-last  125)
-                    first)) 
+                    first))
       (println (lookup-fwd-iter b-tree -1))
       (println (sort s))
       ))
