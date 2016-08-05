@@ -30,7 +30,7 @@ Do you know the fastest way to write data?
 Append it to the end of the file.
 There's no pointers, no updating of data structures, no extra IO costs incurred.
 
-Unfortunately, to perform a query on an event log, we need to replay all the data figure out what happened.
+Unfortunately, to perform a query on an event log, we need to replay all the data to figure out what happened.
 That replay costs `O(n)`, since it touches every event written.
 So, how can we fix this?
 
