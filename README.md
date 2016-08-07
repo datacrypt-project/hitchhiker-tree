@@ -50,7 +50,7 @@ it can accept transactions, provide snapshots for querying, and be cloned.
 
 ;; We can insert some data into it via a transaction
 ;; The update! function is atomic, just like swap! for atoms
-;; update! will pass its transction function a snapshot of the outboard
+;; update! will pass its transaction function a snapshot of the outboard
 (ob/update! my-outboard (fn [snapshot] (ob/insert snapshot "goodbye" "moon")))
 
 ;; Since the insert was transacted, it persists
