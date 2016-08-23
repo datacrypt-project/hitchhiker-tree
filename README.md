@@ -15,7 +15,7 @@ The hitchhiker tree is designed very similarly to how Datomic's backing trees mu
 
 ## Outboard
 
-Outboard is a simple API for your Clojure applications that enables you to make tens of gigabytes of local memory, far beyond what the JVM can manage.
+Outboard is a simple API for your Clojure applications that enables you to make use of tens of gigabytes of local memory, far beyond what the JVM can manage.
 Outboard also allows you to restart your application and reuse all of that in-memory data, which dramatic reduces startup times due to data loading.
 
 Outboard has a simple API, which may be familiar if you've ever used Datomic.
