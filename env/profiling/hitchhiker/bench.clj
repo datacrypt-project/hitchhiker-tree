@@ -4,6 +4,7 @@
             [clojure.tools.cli :refer [parse-opts]]
             [excel-templates.build :as excel]
             [hitchhiker.redis :as redis]
+            [hitchhiker.s3 :as s3]
             [hitchhiker.tree.core :as core]
             [hitchhiker.tree.messaging :as msg])
   (:import [java.io File FileWriter]))
@@ -129,11 +130,10 @@
     :validate [#(#{"fractal" "b-tree" "sorted-set"} %) "Data structure must be fractal, b-tree, or sorted set"]]
    [nil "--backend testing" "Runs the benchmark with the specified backend"
     :default "testing"
-    :validate [#(#{"redis" "testing"} %) "Backend must be redis or testing"]]
+    :validate [#(#{"redis" "testing" "s3"} %) "Backend must be redis, s3 or testing"]]
    ["-d" "--delete-pattern PATTERN" "Specifies how the operations will be reordered on delete"
     :default "forward"
-    :validate [#(#{"forward" "reverse" "shuffle" "zero"} %) "Incorrect delete pattern"]
-    ]
+    :validate [#(#{"forward" "reverse" "shuffle" "zero"} %) "Incorrect delete pattern"]]
    [nil "--sorted-set" "Runs the benchmarks on a sorted set"]
    ["-b" "--tree-width WIDTH" "Determines the width of the trees. Fractal trees use sqrt(b) child pointers; the rest is for messages."
     :default 300
@@ -143,6 +143,8 @@
     :default 1000
     :parse-fn #(Long. %)
     :validate [pos? "flush frequency must be positive"]]
+   [nil "--bucket STRING" "The S3 bucket to use."
+    :default "hitchhiker-tree-s3-test"]
    ["-h" "--help" "Prints this help"]])
 
 (defn exit
@@ -171,7 +173,8 @@
              ""
              "Backends:"
              "testing: this backend serializes nothing, just using an extra indirection"
-             "redis: this backend uses a local redis server"]))
+             "redis: this backend uses a local redis server"
+             "s3: this backend uses an S3 bucket"]))
 
 (defn make-template-for-one-tree-freq-combo
   [list-of-benchmark-results filter-by]
@@ -215,7 +218,8 @@
         (let [backend (case (:backend options)
                         "testing" (core/->TestingBackend)
                         "redis" (do (redis/start-expiry-thread!)
-                                    (redis/->RedisBackend)))
+                                    (redis/->RedisBackend))
+                        "s3" (s3/->S3Backend (:bucket options)))
               delete-xform (case (:delete-pattern options)
                              "forward" identity
                              "reverse" reverse
