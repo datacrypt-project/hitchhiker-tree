@@ -28,10 +28,19 @@
 (def query
   {:table-exists? "select 1 from sqlite_master where type='table' and name=?"
    :index-exists? "select 1 from sqlite_master where type='index' and name=?"
-   :find-key      "select * from hh_key where k=?"})
+   :find-key      "select * from hh_key where k=?"
+   :dead-keys     "select k
+                     from hh_key
+                    where k not in ( select child from hh_ref )"})
 
 (defn drop-ref [db key]
-  (jdbc/delete! db :hh-key ["k = ?" key]))
+  (jdbc/delete! db :hh-key ["k = ?" key]
+                {:entities underscore})
+
+  (let [dead-keys (jdbc/query db (query :dead-keys))]
+    (doseq [{:keys [k] :as dead-key} dead-keys]
+      (drop-ref db k))))
+
 
 (defn db-spec [subname]
   {:classname   "org.sqlite.JDBC"
@@ -86,7 +95,22 @@
 
     (ensure {:items [:hh-ref-by-parent :hh-ref-by-child]
              :exists? index-exists?
-             :create! create-index})))
+             :create! create-index})
+
+    db))
+
+(defonce ^:private db-registry (atom {}))
+
+(defn find-db [subname]
+  (get @db-registry subname))
+
+(defn create-db [subname]
+  (-> {:connection (jdbc/get-connection (db-spec subname))}
+      (ensure-schema)))
+
+(defn find-or-create-db [subname]
+  (or (find-db subname)
+      (create-db subname)))
 
 (defn add-node [db {:keys [k v] :as node}]
   (try
@@ -96,16 +120,25 @@
                       {:node node
                        :db db} e)))))
 
+(defn list-keys [db]
+  (jdbc/query db "select k from hh_key"))
+
 (defn delete-key [db k]
   (jdbc/delete! :hh-key ["k = ?" k]))
 
 (defn add-refs [db {:keys [parent children]}]
   (let [mk-ref (fn [child]
                  [parent child])]
-    (jdbc/insert-multi! db :hh-ref (for [child children]
-                                     {:parent parent
-                                      :child child})
-                        {:entities underscore})))
+    (try
+      (jdbc/insert-multi! db :hh-ref (for [child children]
+                                       {:parent parent
+                                        :child child})
+                          {:entities underscore})
+      (catch Exception e
+        (throw (ex-info "Failed to link parent with children"
+                        {:parent parent
+                         :children children}
+                        e))))))
 
 (defn synthesize-storage-addr
   "Given a key, returns a promise containing that key for use as a storage-addr"
@@ -113,6 +146,10 @@
   (doto (promise)
     (deliver key)))
 
+;;; TODO: I believe using a dynamic var to hold the DB is a bit of anti-pattern but
+;;;       not sure how to avoid it and still support caching as it behaves in the
+;;;       redis backend.
+;;;
 (def ^:dynamic *db*)
 
 (let [cache (-> {}
@@ -167,7 +204,6 @@
   (new-session [_] (atom {:writes 0
                           :deletes 0}))
   (anchor-root [_ {:keys [sqlite-key] :as node}]
-    ;; TODO: figure out how redis gc relates to SQL
     node)
   (write-node [_ node session]
     (swap! session update-in [:writes] inc)

@@ -196,77 +196,76 @@
 
 (defn -main
   [& [root & args]]
-  (jdbc/with-db-connection [db (sqlite/db-spec ":memory:")]
-    (let [outputs (atom [])]
-      (doseq [args (or (->> args
-                            (partition-by #(= % "--"))
-                            (map-indexed vector)
-                            (filter (comp even? first))
-                            (map second)
-                            (seq))
-                       [[]])] ; always do one iteration
-        (let [{:keys [options arguments errors summary]} (parse-opts args options)
-              tree-to-test (atom {})
-              results (atom [])]
-          (cond
-            (or (= "-h" root)
-                (= "--help" root)
-                (nil? root)
-                (:help options)) (exit 0 (usage summary))
-            (not= (count arguments) 0) (exit 1 (usage summary))
-            errors (exit 1 (error-msg errors)))
-          (let [backend (case (:backend options)
-                          "testing" (core/->TestingBackend)
-                          "redis" (do (redis/start-expiry-thread!)
-                                      (redis/->RedisBackend))
-                          "sqlite" (do (sqlite/ensure-schema db)
-                                       (sqlite/->SQLiteBackend db)))
-                delete-xform (case (:delete-pattern options)
-                               "forward" identity
-                               "reverse" reverse
-                               "shuffle" shuffle
-                               "zero" #(repeat (count %) 0.0))
-                [tree-name structure]
-                (case (:data-structure options)
-                  "b-tree" ["b-tree" (core-b-tree (:tree-width options) backend)]
-                  "fractal" ["fractal" (msg-b-tree (:tree-width options) backend)]
-                  "sorted-set" ["sorted-set" (sorted-set-repr)])
-                flush-freq (:flush-freq options)
-                codename (str tree-name
-                              "__flush_"
-                              flush-freq
-                              "__b_"
-                              (:tree-width options)
-                              "__"
-                              (:backend options)
-                              "__n_"
-                              (:num-operations options)
-                              "__del_"
-                              (:delete-pattern options))]
-            (doseq [ds (generate-test-datasets)
-                    :let [codename (str codename
-                                        "_"
-                                        (:name ds))
-                          out (create-output-dir
-                               root
-                               codename)
-                          _ (println "Doing" codename)
-                          bench-res (benchmark (:num-operations options) ds flush-freq structure out delete-xform)]]
-              (swap! results conj
-                     {:tree tree-name
-                      :ds (:name ds)
-                      :freq flush-freq
-                      :n (:num-operations options)
-                      :b (:tree-width options)
-                      :delete-pattern (:delete-pattern options)
-                      :results bench-res}))
+  (let [outputs (atom [])]
+    (doseq [args (or (->> args
+                          (partition-by #(= % "--"))
+                          (map-indexed vector)
+                          (filter (comp even? first))
+                          (map second)
+                          (seq))
+                     [[]])] ; always do one iteration
+      (let [{:keys [options arguments errors summary]} (parse-opts args options)
+            tree-to-test (atom {})
+            results (atom [])]
+        (cond
+          (or (= "-h" root)
+              (= "--help" root)
+              (nil? root)
+              (:help options)) (exit 0 (usage summary))
+          (not= (count arguments) 0) (exit 1 (usage summary))
+          errors (exit 1 (error-msg errors)))
+        (let [backend (case (:backend options)
+                        "testing" (core/->TestingBackend)
+                        "redis" (do (redis/start-expiry-thread!)
+                                    (redis/->RedisBackend))
+                        "sqlite" (sqlite/->SQLiteBackend
+                                  (sqlite/find-or-create-db "/tmp/yolo.sqlite")))
+              delete-xform (case (:delete-pattern options)
+                             "forward" identity
+                             "reverse" reverse
+                             "shuffle" shuffle
+                             "zero" #(repeat (count %) 0.0))
+              [tree-name structure]
+              (case (:data-structure options)
+                "b-tree" ["b-tree" (core-b-tree (:tree-width options) backend)]
+                "fractal" ["fractal" (msg-b-tree (:tree-width options) backend)]
+                "sorted-set" ["sorted-set" (sorted-set-repr)])
+              flush-freq (:flush-freq options)
+              codename (str tree-name
+                            "__flush_"
+                            flush-freq
+                            "__b_"
+                            (:tree-width options)
+                            "__"
+                            (:backend options)
+                            "__n_"
+                            (:num-operations options)
+                            "__del_"
+                            (:delete-pattern options))]
+          (doseq [ds (generate-test-datasets)
+                  :let [codename (str codename
+                                      "_"
+                                      (:name ds))
+                        out (create-output-dir
+                              root
+                              codename)
+                        _ (println "Doing" codename)
+                        bench-res (benchmark (:num-operations options) ds flush-freq structure out delete-xform)]]
+            (swap! results conj
+                   {:tree tree-name
+                    :ds (:name ds)
+                    :freq flush-freq
+                    :n (:num-operations options)
+                    :b (:tree-width options)
+                    :delete-pattern (:delete-pattern options)
+                    :results bench-res}))
                                         ;(println "results")
                                         ;(clojure.pprint/pprint @results)
-            (swap! outputs conj (template-one-sheet @results)))))
-      (excel/render-to-file
-       "template_benchmark.xlsx"
-       (.getPath (File. root "analysis.xlsx"))
-       {"SingleDS"
-        (map-indexed (fn [i s]
-                       (assoc s :sheet-name (str "Trial " (inc i))))
-                     @outputs)}))))
+          (swap! outputs conj (template-one-sheet @results)))))
+    (excel/render-to-file
+     "template_benchmark.xlsx"
+     (.getPath (File. root "analysis.xlsx"))
+     {"SingleDS"
+      (map-indexed (fn [i s]
+                     (assoc s :sheet-name (str "Trial " (inc i))))
+                   @outputs)})))
