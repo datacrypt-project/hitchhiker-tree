@@ -21,7 +21,13 @@
           data2 (data-node (->Config 3 3 2) (sorted-map 6 6 7 7 8 8 9 9 10 10))
           root (->IndexNode [data1 data2] (promise) [] (->Config 3 3 2))]
       (is (= (map first (lookup-fwd-iter root 4)) (range 4 11)))
-      (is (= (map first (lookup-fwd-iter root 0)) (range 1 11))))))
+      (is (= (map first (lookup-fwd-iter root 0)) (range 1 11)))))
+
+  (testing "index nodes identified as such"
+    (let [data (data-node (->Config 3 3 2) (sorted-map 1 1))
+          root (->IndexNode [data] (promise) [] (->Config 3 3 2))]
+      (is (index? root))
+      (is (not (index? data))))))
 
 (defn insert-helper
   [t k]

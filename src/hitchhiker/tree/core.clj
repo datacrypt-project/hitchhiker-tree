@@ -14,6 +14,7 @@
 (defprotocol IResolve
   "All nodes must implement this protocol. It's includes the minimal functionality
    necessary to avoid resolving nodes unless strictly necessary."
+  (index? [_] "Returns true if this is an index node")
   (last-key [_] "Returns the rightmost key of the node")
   (dirty? [_] "Returns true if this should be flushed")
   ;;TODO resolve should be instrumented
@@ -103,6 +104,7 @@
 
 (defrecord IndexNode [children storage-addr op-buf cfg]
   IResolve
+  (index? [this] true)
   (dirty? [this] (not (realized? storage-addr)))
   (resolve [this] this) ;;TODO this is a hack for testing
   (last-key [this]
@@ -213,6 +215,7 @@
 
 (defrecord DataNode [children storage-addr cfg]
   IResolve
+  (index? [this] false)
   (resolve [this] this) ;;TODO this is a hack for testing
   (dirty? [this] (not (realized? storage-addr)))
   (last-key [this]
