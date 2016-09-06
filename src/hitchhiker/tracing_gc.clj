@@ -55,8 +55,8 @@
   (loop []
     (when-let [addr (pop-from-work-queue! gc-scratch)]
       (observe-addr! gc-scratch addr)
-      (let [node (hh/resolve addr)]
-        (when (hh/index-node? node)
+      (when (hh/index? addr)
+        (let [node (hh/resolve addr)]
           (doseq [c (:children node)]
             (add-to-work-queue! gc-scratch c))))
       (recur)))

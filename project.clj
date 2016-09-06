@@ -10,7 +10,8 @@
   :aliases {"bench" ["with-profile" "profiling" "run" "-m" "hitchhiker.bench"]}
   :jvm-opts ["-server" "-Xmx3700m" "-Xms3700m"]
   :profiles {:test
-             {:dependencies [[org.clojure/test.check "0.9.0"]]}
+             {:dependencies [[org.clojure/test.check "0.9.0"]
+                             [org.clojure/tools.nrepl "0.2.11"]]}
              :profiling
              {:main hitchhiker.bench
               :source-paths ["env/profiling"]
