@@ -2,10 +2,9 @@
   (:require [clojure.pprint :as pp]
             [clojure.string :as str]
             [clojure.tools.cli :refer [parse-opts]]
-            [clojure.java.jdbc :as jdbc]
             [excel-templates.build :as excel]
             [hitchhiker.redis :as redis]
-            [hitchhiker.sqlite :as sqlite]
+            [hitchhiker.jdbc :as jdbc]
             [hitchhiker.tree.core :as core]
             [hitchhiker.tree.messaging :as msg])
   (:import [java.io File FileWriter]))
@@ -131,7 +130,7 @@
     :validate [#(#{"fractal" "b-tree" "sorted-set"} %) "Data structure must be fractal, b-tree, or sorted set"]]
    [nil "--backend testing" "Runs the benchmark with the specified backend"
     :default "testing"
-    :validate [#(#{"redis" "sqlite" "testing"} %) "Backend must be redis, sqlite or testing"]]
+    :validate [#(#{"redis" "jdbc" "testing"} %) "Backend must be redis, jdbc or testing"]]
    ["-d" "--delete-pattern PATTERN" "Specifies how the operations will be reordered on delete"
     :default "forward"
     :validate [#(#{"forward" "reverse" "shuffle" "zero"} %) "Incorrect delete pattern"]
@@ -218,8 +217,8 @@
                         "testing" (core/->TestingBackend)
                         "redis" (do (redis/start-expiry-thread!)
                                     (redis/->RedisBackend))
-                        "sqlite" (sqlite/->SQLiteBackend
-                                  (sqlite/find-or-create-db "/tmp/yolo.sqlite")))
+                        "jdbc" (jdbc/->JDBCBackend
+                                (jdbc/find-or-create-db "/tmp/yolo.sqlite")))
               delete-xform (case (:delete-pattern options)
                              "forward" identity
                              "reverse" reverse

@@ -1,4 +1,4 @@
-(ns hitchhiker.sqlite
+(ns hitchhiker.jdbc
   (:require [clojure.java.jdbc :as jdbc]
             [clojure.edn :as edn]
             [clojure.string :as str]
@@ -7,6 +7,27 @@
             [clojure.core.cache :as cache]
             [taoensso.nippy :as nippy])
   (:import [java.sql SQLException]))
+
+;;; References in a Relational DB
+;;;
+;;; The SQLite backend uses a simple relational model to keep track of
+;;; keys and their references. Each key is listed in hh_keys, and whenever
+;;; we'd like to have some key point to another, we call add-refs with the
+;;; "pointer" key and a list of pointee keys. For each pointee, add-refs will
+;;; add a `(pointer, pointee)` tuple in hh_refs.
+;;;
+;;; hh_keys
+;;;  k the name of the key
+;;;  v a binary blob representing the value of `k`
+;;;
+;;; hh_refs
+;;;  pointer the name of the pointer key
+;;;  pointee the name of the pointee key
+;;;
+;;; To delete a key, use `drop-key` which also takes care of deleting any
+;;; keys that are only hanging around because they point to the key being
+;;; deleted.
+;;;
 
 (defn underscore [x]
   (str/replace (str x) "-" "_"))
@@ -18,12 +39,12 @@
              {:entities underscore})
 
    :hh-ref (jdbc/create-table-ddl :hh-ref
-             [[:parent :string "references hh_key(k) on delete cascade"]
-              [:child :string "references hh_key(k) on delete cascade"]]
+             [[:pointer :string "references hh_key(k) on delete cascade"]
+              [:pointee :string "references hh_key(k) on delete cascade"]]
              {:entities underscore})
 
-   :hh-ref-by-parent "create index if not exists hh_ref_by_parent on hh_ref (parent);"
-   :hh-ref-by-child "create index if not exists hh_ref_by_child on hh_ref (child);"})
+   :hh-ref-by-pointer "create index if not exists hh_ref_by_pointer on hh_ref (pointer);"
+   :hh-ref-by-pointee "create index if not exists hh_ref_by_pointee on hh_ref (pointee);"})
 
 (def query
   {:table-exists? "select 1 from sqlite_master where type='table' and name=?"
@@ -31,15 +52,15 @@
    :find-key      "select * from hh_key where k=?"
    :dead-keys     "select k
                      from hh_key
-                    where k not in ( select child from hh_ref )"})
+                    where k not in ( select pointee from hh_ref )"})
 
-(defn drop-ref [db key]
+(defn drop-key [db key]
   (jdbc/delete! db :hh-key ["k = ?" key]
                 {:entities underscore})
 
   (let [dead-keys (jdbc/query db (query :dead-keys))]
     (doseq [{:keys [k] :as dead-key} dead-keys]
-      (drop-ref db k))))
+      (drop-key db k))))
 
 
 (defn db-spec [subname]
@@ -93,7 +114,7 @@
              :exists? table-exists?
              :create! create-table})
 
-    (ensure {:items [:hh-ref-by-parent :hh-ref-by-child]
+    (ensure {:items [:hh-ref-by-pointer :hh-ref-by-pointee]
              :exists? index-exists?
              :create! create-index})
 
@@ -126,18 +147,18 @@
 (defn delete-key [db k]
   (jdbc/delete! :hh-key ["k = ?" k]))
 
-(defn add-refs [db {:keys [parent children]}]
-  (let [mk-ref (fn [child]
-                 [parent child])]
+(defn add-refs [db {:keys [pointer pointees]}]
+  (let [mk-ref (fn [pointee]
+                 [pointer pointee])]
     (try
-      (jdbc/insert-multi! db :hh-ref (for [child children]
-                                       {:parent parent
-                                        :child child})
+      (jdbc/insert-multi! db :hh-ref (for [pointee pointees]
+                                       {:pointer pointer
+                                        :pointee pointee})
                           {:entities underscore})
       (catch Exception e
-        (throw (ex-info "Failed to link parent with children"
-                        {:parent parent
-                         :children children}
+        (throw (ex-info "Failed to link pointer with pointees"
+                        {:pointer pointer
+                         :pointee pointees}
                         e))))))
 
 (defn synthesize-storage-addr
@@ -199,7 +220,7 @@
         redis-key (nippy/thaw-from-in! data-input)]
     (sqlite-addr last-key redis-key)))
 
-(defrecord SQLiteBackend [db]
+(defrecord JDBCBackend [db]
   core/IBackend
   (new-session [_] (atom {:writes 0
                           :deletes 0}))
@@ -219,10 +240,10 @@
         (binding [*db* tx]
           (add-node db {:k key, :v node})
           (when (core/index-node? node)
-            (add-refs db {:parent key
-                          :children (for [child (:children node)
-                                          :let [child-key @(:storage-addr child)]]
-                                      child-key)}))))
+            (add-refs db {:pointer key
+                          :pointees (for [pointee (:pointees node)
+                                          :let [pointee-key @(:storage-addr pointee)]]
+                                      pointee-key)}))))
 
       (seed-cache! key (doto (promise)
                          (deliver node)))
