@@ -92,6 +92,13 @@ They can be extended to contain a mechanism to make statistical analytics blazin
 
 Details about hitchhiker trees, including related work, can be found in `docs/hitchhiker.adoc`.
 
+## Testing
+
+You'l need a local Redis instance running to run the tests. Once you have it, just run  
+ 
+    lein test
+
+
 ## Benchmarking
 
 This library includes a detailed, instrumented benchmarking suite.
