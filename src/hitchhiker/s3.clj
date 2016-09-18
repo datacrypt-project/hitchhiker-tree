@@ -54,27 +54,29 @@
 
 (defn delete-object
   [bucket key]
-  (doall (for [other-key (map :key (:object-summaries
+  #_(doall (for [other-key (map :key (:object-summaries
                                     (s3/list-objects :bucket-name bucket
                                                      :prefix (str key "/->"))))]
            (s3/delete-object :bucket-name bucket
                              :key (str (last (split other-key "/->")) "/<-" key))
            ; TODO: delete other-key if no refs?
            ))
-  (doall (for [other-key (map :key (:object-summaries
+  #_(doall (for [other-key (map :key (:object-summaries
                                     (s3/list-objects :bucket-name bucket
                                                      :prefix (str key "/<-"))))]
            (s3/delete-object :bucket-name bucket
                              :key (str (last (split other-key "/<-")) "/->" key))))
   (s3/delete-object :bucket-name bucket :key key))
 
-(defn add-refs
+(comment
+  (defn add-refs
   [node-key child-keys]
   (doall
    (for [{:keys [bucket key]} child-keys]
      (do
        (write-object bucket (str node-key "/->" key) (byte-array 0))
        (write-object bucket (str key "/<-" node-key) (byte-array 0))))))
+)
 
 (defrecord S3Backend [#_service bucket]
   core/IBackend
@@ -89,7 +91,7 @@
     (let [key (UUID/randomUUID)
           addr (s3-addr (core/last-key node) bucket key)]
       (write-object bucket key (nippy/freeze node))
-      (when (core/index-node? node)
+      #_(when (core/index-node? node)
         (add-refs key
                   (for [child (:children node)
                         :let [child-key @(:storage-addr child)]]
