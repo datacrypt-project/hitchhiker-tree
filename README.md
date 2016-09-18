@@ -2,6 +2,8 @@
 
 Hitchhiker trees are a newly invented (by @dgrnbrg) datastructure, synthesizing fractal trees and functional data structures, to create fast, snapshottable, massively scalable databases.
 
+[Watch the talk from Strange Loop](https://www.youtube.com/watch?v=jdn617M3-P4) to learn more, especially about the concept!
+
 ## What's in this Repository?
 
 The hitchhiker namespaces contain a complete implementation of a persistent, serializable, lazily-loaded hitchhiker tree.
