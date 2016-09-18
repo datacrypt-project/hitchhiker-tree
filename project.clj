@@ -11,6 +11,8 @@
                   :exclusions [com.amazonaws/aws-java-sdk]]
                  [com.amazonaws/aws-java-sdk-core "1.11.26"]
                  [com.amazonaws/aws-java-sdk-s3 "1.11.26"]]
+                 [org.clojure/core.rrb-vector "0.0.11"]
+                 [org.clojure/core.cache "0.6.5"]]
   :aliases {"bench" ["with-profile" "profiling" "run" "-m" "hitchhiker.bench"]}
   :jvm-opts ["-server" "-Xmx3700m" "-Xms3700m"]
   :profiles {:test
