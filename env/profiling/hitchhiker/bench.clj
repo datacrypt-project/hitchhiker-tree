@@ -4,6 +4,7 @@
             [clojure.tools.cli :refer [parse-opts]]
             [excel-templates.build :as excel]
             [hitchhiker.redis :as redis]
+            [hitchhiker.jdbc :as jdbc]
             [hitchhiker.tree.core :as core]
             [hitchhiker.tree.messaging :as msg])
   (:import [java.io File FileWriter]))
@@ -129,7 +130,7 @@
     :validate [#(#{"fractal" "b-tree" "sorted-set"} %) "Data structure must be fractal, b-tree, or sorted set"]]
    [nil "--backend testing" "Runs the benchmark with the specified backend"
     :default "testing"
-    :validate [#(#{"redis" "testing"} %) "Backend must be redis or testing"]]
+    :validate [#(#{"redis" "jdbc" "testing"} %) "Backend must be redis, jdbc or testing"]]
    ["-d" "--delete-pattern PATTERN" "Specifies how the operations will be reordered on delete"
     :default "forward"
     :validate [#(#{"forward" "reverse" "shuffle" "zero"} %) "Incorrect delete pattern"]
@@ -215,7 +216,9 @@
         (let [backend (case (:backend options)
                         "testing" (core/->TestingBackend)
                         "redis" (do (redis/start-expiry-thread!)
-                                    (redis/->RedisBackend)))
+                                    (redis/->RedisBackend))
+                        "jdbc" (jdbc/->JDBCBackend
+                                (jdbc/find-or-create-db "/tmp/yolo.sqlite")))
               delete-xform (case (:delete-pattern options)
                              "forward" identity
                              "reverse" reverse
@@ -255,13 +258,13 @@
                     :b (:tree-width options)
                     :delete-pattern (:delete-pattern options)
                     :results bench-res}))
-          ;(println "results")
-          ;(clojure.pprint/pprint @results)
+                                        ;(println "results")
+                                        ;(clojure.pprint/pprint @results)
           (swap! outputs conj (template-one-sheet @results)))))
     (excel/render-to-file
-      "template_benchmark.xlsx"
-      (.getPath (File. root "analysis.xlsx"))
-      {"SingleDS"
-       (map-indexed (fn [i s]
-                      (assoc s :sheet-name (str "Trial " (inc i))))
-                    @outputs)})))
+     "template_benchmark.xlsx"
+     (.getPath (File. root "analysis.xlsx"))
+     {"SingleDS"
+      (map-indexed (fn [i s]
+                     (assoc s :sheet-name (str "Trial " (inc i))))
+                   @outputs)})))
