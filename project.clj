@@ -7,7 +7,11 @@
                  [org.clojure/core.memoize "0.5.8"]
                  [com.taoensso/carmine "2.12.2"]
                  [org.clojure/core.rrb-vector "0.0.11"]
-                 [org.clojure/core.cache "0.6.5"]]
+                 [org.clojure/core.cache "0.6.5"]
+
+                 [io.replikativ/incognito "0.2.2-SNAPSHOT"]
+                 [io.replikativ/konserve "0.4.8"]
+                 [io.replikativ/superv.async "0.2.5"]]
   :aliases {"bench" ["with-profile" "profiling" "run" "-m" "hitchhiker.bench"]}
   :jvm-opts ["-server" "-Xmx3700m" "-Xms3700m"]
   :profiles {:test
