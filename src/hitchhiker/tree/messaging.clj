@@ -63,69 +63,75 @@
 
 (defn enqueue
   ([tree msgs]
-   (let [deferred-ops (atom [])
-         msg-buffers-propagated (enqueue tree msgs deferred-ops)]
-     ;(when (seq @deferred-ops) (println "appyling deferred ops" @deferred-ops))
-     (reduce (fn [tree op]
-               (apply-op-to-tree op tree))
-             msg-buffers-propagated
-             @deferred-ops)))
+   (go-try S
+     (let [deferred-ops (atom [])
+           msg-buffers-propagated (<? S (enqueue tree msgs deferred-ops))]
+                                        ;(when (seq @deferred-ops) (println "appyling deferred ops" @deferred-ops))
+       (loop [tree msg-buffers-propagated
+              [op & r] @deferred-ops]
+         (if op
+           (recur (<? S (apply-op-to-tree op tree)) r)
+           tree))
+       #_(reduce (fn [tree op]
+                   (apply-op-to-tree op tree))
+                 msg-buffers-propagated
+                 @deferred-ops))))
   ([tree msgs deferred-ops]
-   ;(println "tree is" (class tree) tree)
-   (let [tree (core/resolve tree)]
-     (cond
-       (core/data-node? tree) ; need to return ops to apply to the tree proper...
-       (do (swap! deferred-ops into msgs)
-           tree)
-       (<= (+ (count msgs) (count (:op-buf tree)))
-           (get-in tree [:cfg :op-buf-size])) ; will there be enough space?
-       (-> tree
-           (core/dirty!)
-           (update-in [:op-buf] into msgs))
-       :else ; overflow, should be IndexNode
-       (do (assert (core/index-node? tree))
-           ;(println "overflowing node" (:keys tree) "with buf" (:op-buf tree)
-           ;         "with new msgs" msgs
-           ;         )
-           (loop [[child & children] (:children tree)
-                  rebuilt-children []
-                  msgs (vec (sort-by affects-key ;must be a stable sort
-                                     (concat (:op-buf tree) msgs)))]
-             (let [took-msgs (into []
-                                   (take-while #(>= 0 (core/compare
-                                                        (affects-key %)
-                                                        (core/last-key child))))
-                                   msgs)
-                   extra-msgs (into []
-                                   (drop-while #(>= 0 (core/compare
-                                                        (affects-key %)
-                                                        (core/last-key child))))
-                                   msgs)
-                   ;_ (println "last-key:" (core/last-key child))
-                   ;_ (println "goes left:" took-msgs)
-                   ;_ (println "goes right:" extra-msgs)
-                   on-the-last-child? (empty? children)
+   (go-try S
+     (let [tree (<? S (core/resolve tree S))]
+       (cond
+         (core/data-node? tree) ; need to return ops to apply to the tree proper...
+         (do (swap! deferred-ops into msgs)
+             tree)
+         (<= (+ (count msgs) (count (:op-buf tree)))
+             (get-in tree [:cfg :op-buf-size])) ; will there be enough space?
+         (-> tree
+             (core/dirty!)
+             (update-in [:op-buf] into msgs))
+         :else ; overflow, should be IndexNode
+         (do (assert (core/index-node? tree))
+                                        ;(println "overflowing node" (:keys tree) "with buf" (:op-buf tree)
+                                        ;         "with new msgs" msgs
+                                        ;         )
+             (loop [[child & children] (:children tree)
+                    rebuilt-children []
+                    msgs (vec (sort-by affects-key ;must be a stable sort
+                                       (concat (:op-buf tree) msgs)))]
+               (let [took-msgs (into []
+                                     (take-while #(>= 0 (core/compare
+                                                         (affects-key %)
+                                                         (core/last-key child))))
+                                     msgs)
+                     extra-msgs (into []
+                                      (drop-while #(>= 0 (core/compare
+                                                          (affects-key %)
+                                                          (core/last-key child))))
+                                      msgs)
+                                        ;_ (println "last-key:" (core/last-key child))
+                                        ;_ (println "goes left:" took-msgs)
+                                        ;_ (println "goes right:" extra-msgs)
+                     on-the-last-child? (empty? children)
 
-                   ;; Any changes to the current child?
-                   new-child
-                   (cond
-                     (and on-the-last-child? (seq extra-msgs))
-                     (enqueue (core/resolve child)
-                              (catvec took-msgs extra-msgs)
-                              deferred-ops)
-                     (seq took-msgs) ; save a write
-                     (enqueue (core/resolve child)
-                              took-msgs
-                              deferred-ops)
-                     :else
-                     child)]
+                     ;; Any changes to the current child?
+                     new-child
+                     (cond
+                       (and on-the-last-child? (seq extra-msgs))
+                       (<? S (enqueue (<? S (core/resolve child S))
+                                      (catvec took-msgs extra-msgs)
+                                      deferred-ops))
+                       (seq took-msgs) ; save a write
+                       (<? S (enqueue (<? S (core/resolve child S))
+                                      took-msgs
+                                      deferred-ops))
+                       :else
+                       child)]
 
-               (if on-the-last-child?
-                 (-> tree
-                     (assoc :children (conj rebuilt-children new-child))
-                     (assoc :op-buf [])
-                     (core/dirty!))
-                 (recur children (conj rebuilt-children new-child) extra-msgs)))))))))
+                 (if on-the-last-child?
+                   (-> tree
+                       (assoc :children (conj rebuilt-children new-child))
+                       (assoc :op-buf [])
+                       (core/dirty!))
+                   (recur children (conj rebuilt-children new-child) extra-msgs))))))))))
 
 
 ;;TODO delete in core needs to stop using the index-node constructor to be more

@@ -505,7 +505,7 @@
   IResolve
   (dirty? [this] false)
   (last-key [_] last-key)
-  (resolve [_] node))
+  (resolve [_ S] (go node)))
 
 (defn print-testing-addr
   [node ^Writer writer fully-qualified?]
