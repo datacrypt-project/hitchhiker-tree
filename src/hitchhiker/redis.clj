@@ -1,6 +1,7 @@
 (ns hitchhiker.redis
   (:require [clojure.core.cache :as cache]
             [clojure.string :as str]
+            [superv.async :refer [go-try <? <?? S]]
             [hitchhiker.tree.core :as core]
             [hitchhiker.tree.messaging :as msg]
             [taoensso.carmine :as car :refer [wcar]]
@@ -169,8 +170,10 @@
   core/IResolve
   (dirty? [_] false)
   (last-key [_] last-key)
-  (resolve [_] (-> (totally-fetch redis-key)
-                 (assoc :storage-addr (synthesize-storage-addr redis-key)))))
+  (resolve [_ S]
+    (go-try S
+            (-> (totally-fetch redis-key)
+                (assoc :storage-addr (synthesize-storage-addr redis-key))))))
 
 (comment
   (:cfg (wcar {} (car/get "b89bb965-e584-45a2-9232-5b76bf47a21c")))
@@ -201,23 +204,24 @@
     (wcar {} (add-to-expiry redis-key (+ 5000 (System/currentTimeMillis))))
     node)
   (write-node [_ node session]
-    (swap! session update-in [:writes] inc)
-    (let [key (str (java.util.UUID/randomUUID))
-          addr (redis-addr (core/last-key node) key)]
-      ;(.submit service #(wcar {} (car/set key node)))
-      (when (some #(not (satisfies? msg/IOperation %)) (:op-buf node))
-        (println (str "Found a broken node, has " (count (:op-buf node)) " ops"))
-        (println (str "The node data is " node))
-        (println (str "and " (:op-buf node))))
-      (wcar {}
-            (car/set key node)
-            (when (core/index-node? node)
-              (add-refs key
-                        (for [child (:children node)
-                              :let [child-key @(:storage-addr child)]]
-                          child-key))))
-      (seed-cache! key (doto (promise) (deliver node)))
-      addr))
+    (go-try S
+            (swap! session update-in [:writes] inc)
+            (let [key (str (java.util.UUID/randomUUID))
+                  addr (redis-addr (core/last-key node) key)]
+                                        ;(.submit service #(wcar {} (car/set key node)))
+              (when (some #(not (satisfies? msg/IOperation %)) (:op-buf node))
+                (println (str "Found a broken node, has " (count (:op-buf node)) " ops"))
+                (println (str "The node data is " node))
+                (println (str "and " (:op-buf node))))
+              (wcar {}
+                    (car/set key node)
+                    (when (core/index-node? node)
+                      (add-refs key
+                                (for [child (:children node)
+                                      :let [child-key @(:storage-addr child)]]
+                                  child-key))))
+              (seed-cache! key (doto (promise) (deliver node)))
+              addr)))
   (delete-addr [_ addr session]
     (wcar {} (car/del addr))
     (swap! session update-in :deletes inc)))
@@ -229,8 +233,9 @@
 (defn create-tree-from-root-key
   [root-key]
   (let [last-key (core/last-key (wcar {} (car/get root-key)))] ; need last key to bootstrap
-    (core/resolve
-      (->RedisAddr last-key root-key (synthesize-storage-addr root-key)))))
+    (<?? S (core/resolve
+            (->RedisAddr last-key root-key (synthesize-storage-addr root-key))
+            S))))
 
 (comment
   (wcar {} (car/ping) (car/set "foo" "bar") (car/get "foo"))

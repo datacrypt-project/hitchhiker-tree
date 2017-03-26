@@ -1,5 +1,6 @@
 (ns hitchhiker.outboard
   (:require [hitchhiker.redis :as redis]
+            [superv.async :refer [<?? S]]
             [hitchhiker.tree.core :as core]
             [hitchhiker.tree.messaging :as msg]
             [taoensso.carmine :as car :refer [wcar]])
@@ -39,9 +40,9 @@
         flush-tree #(when-not (redis/get-root-key @tree-atom)
                       (swap! tree-atom
                              (fn [tree]
-                               (:tree (core/flush-tree
-                                        tree
-                                        (redis/->RedisBackend)))))
+                               (:tree (<?? S (core/flush-tree
+                                              tree
+                                              (redis/->RedisBackend))))))
                       (let [new-root (redis/get-root-key @tree-atom)]
                         (wcar
                           {}
@@ -79,7 +80,7 @@
                          ", its already in use") {:used-name new-name})))
   ;;TODO race condition where additional calls to create could all succeed
   ;;we should guard against this
-  (let [conn (->OutboardConnection (LinkedBlockingQueue.) (atom (core/b-tree (core/->Config 30 600 870))) (atom :running) (atom nil) new-name)]
+  (let [conn (->OutboardConnection (LinkedBlockingQueue.) (atom (<?? S (core/b-tree (core/->Config 30 600 870)))) (atom :running) (atom nil) new-name)]
     (launch-outboard-processer! conn new-name)
     (swap! connection-registry assoc new-name conn)
     conn))
@@ -137,27 +138,27 @@
   [snapshot k v & kvs]
   (let [tree snapshot]
     (if (and (seq kvs) (even? (count kvs)))
-      (loop [tree (msg/insert tree k v)
+      (loop [tree (<?? S (msg/insert tree k v))
              [k v & kvs] kvs]
         (if (and k v)
-          (recur (msg/insert tree k v) kvs)
+          (recur (<?? S (msg/insert tree k v)) kvs)
           tree))
-      (msg/insert tree k v))))
+      (<?? S (msg/insert tree k v)))))
 
 (defn delete
   "Deletes keys from the outboard data snapshot"
   [snapshot k & ks]
   (let [tree snapshot]
     (if (seq ks)
-      (reduce msg/delete tree (cons k ks))
-      (msg/delete tree k))))
+      (reduce #(<?? S (msg/delete %1 %2)) tree (cons k ks))
+      (<?? S (msg/delete tree k)))))
 
 (defn lookup
   "Returns the value for the given key, or not-found which defaults to nil"
   ([snapshot k]
-   (msg/lookup snapshot k))
+   (<?? S (msg/lookup snapshot k)))
   ([snapshot k not-found]
-   (or (msg/lookup snapshot k) not-found)))
+   (or (<?? S (msg/lookup snapshot k)) not-found)))
 
 (defn lookup-fwd-iter
   "Returns a lazy iterator of KV pairs starting from the key.

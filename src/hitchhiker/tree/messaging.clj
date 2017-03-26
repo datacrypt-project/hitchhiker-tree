@@ -2,6 +2,7 @@
   (:refer-clojure :exclude [subvec])
   (:require [clojure.core.rrb-vector :refer [catvec]]
             [clojure.pprint :as pp]
+            [superv.async :refer [go-try S <? go-for <<? <??]]
             [hitchhiker.tree.core :as core])
   (:import java.io.Writer))
 
@@ -14,7 +15,7 @@
 (defprotocol IOperation
   (affects-key [op] "Which key this affects--currently must be a single key")
   (apply-op-to-coll [op coll] "Applies the operation to the collection")
-  (apply-op-to-tree [op tree] "Applies the operation to the tree"))
+  (apply-op-to-tree [op tree] "Applies the operation to the tree. Returns go-block."))
 
 (defrecord InsertOp [key value]
   IOperation
@@ -198,9 +199,10 @@
   ([tree key]
    (lookup tree key nil))
   ([tree key not-found]
-   (let [path (core/lookup-path tree key)
-         expanded (apply-ops-in-path path)]
-     (get expanded key not-found))))
+   (go-try S
+     (let [path (<? S (core/lookup-path tree key))
+           expanded (apply-ops-in-path path)]
+       (get expanded key not-found)))))
 
 (defn insert
   [tree key value]
@@ -221,13 +223,13 @@
   (assert (core/data-node? (peek path)))
   (let [first-elements (apply-ops-in-path path)
         next-elements (lazy-seq
-                        (when-let [succ (core/right-successor (pop path))]
+                       (when-let [succ (<?? S (core/right-successor (pop path)))]
                           (forward-iterator succ)))]
     (concat first-elements next-elements)))
 
 (defn lookup-fwd-iter
   [tree key]
-  (let [path (core/lookup-path tree key)]
+  (let [path (<?? S (core/lookup-path tree key))]
     (when path
       (drop-while (fn [[k v]]
                     (neg? (core/compare k key)))

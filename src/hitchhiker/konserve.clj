@@ -1,7 +1,8 @@
 (ns hitchhiker.konserve
+  (:refer-clojure :exclude [resolve subvec])
   (:require [clojure.core.rrb-vector :refer [catvec subvec]]
             [clojure.core.async :refer [chan <! go <!!] :as async]
-            [superv.async :refer [<?? go-try S]]
+            [superv.async :refer [<? go-try S]]
             [konserve.core :as k]
             [konserve.memory :refer [new-mem-store]]
             [konserve.filestore :refer [new-fs-store]]
@@ -22,11 +23,12 @@
   core/IResolve
   (dirty? [_] false)
   (last-key [_] last-key)
-  (resolve [_]
-    (-> (<?? S (k/get-in store [konserve-key]))
-        #_((fn [e] (prn "get-in" e) e))
-        (assoc :storage-addr (synthesize-storage-addr konserve-key))
-        #_((fn [e] (prn "assoc" e) e)))))
+  (resolve [_ S]
+    (go-try S
+      (-> (<? S (k/get-in store [konserve-key]))
+          #_((fn [e] (prn "get-in" e) e))
+          (assoc :storage-addr (synthesize-storage-addr konserve-key))
+          #_((fn [e] (prn "assoc" e) e))))))
 
 
 (defrecord KonserveBackend [store]
@@ -37,20 +39,16 @@
     #_(wcar {} (add-to-expiry redis-key (+ 5000 (System/currentTimeMillis))))
     node)
   (write-node [_ node session]
-    (swap! session update-in [:writes] inc)
-    (let [pnode (if (core/index-node? node)
-                  (-> (assoc node :storage-addr nil)
-                      (update :children (fn [cs] (mapv #(assoc % :store nil
-                                                               :storage-addr nil) cs))))
-                  (assoc node :storage-addr nil))]
-      (try
+    (go-try S
+      (swap! session update-in [:writes] inc)
+      (let [pnode (if (core/index-node? node)
+                    (-> (assoc node :storage-addr nil)
+                        (update :children (fn [cs] (mapv #(assoc % :store nil
+                                                                 :storage-addr nil) cs))))
+                    (assoc node :storage-addr nil))]
         (let [id (uuid pnode)]
-          (<?? S (k/assoc-in store [id] pnode))
-          (->KonserveAddr store (core/last-key node) id (synthesize-storage-addr id)))
-        (catch Exception e
-          (prn e)
-          (prn pnode)
-          (throw e))))
+          (<? S (k/assoc-in store [id] pnode))
+          (->KonserveAddr store (core/last-key node) id (synthesize-storage-addr id)))))
     #_(let [key (str (java.util.UUID/randomUUID))
           addr (redis-addr (core/last-key node) key)]
       ;(.submit service #(wcar {} (car/set key node)))
@@ -77,80 +75,85 @@
 
 (defn create-tree-from-root-key
   [store root-key]
-  (let [val (<?? S (k/get-in store [root-key]))
-        last-key (core/last-key (assoc val :storage-addr (synthesize-storage-addr root-key)))] ; need last key to bootstrap
-    (core/resolve
-     (->KonserveAddr store last-key root-key (synthesize-storage-addr root-key)))))
+  (go-try S
+    (let [val (<? S (k/get-in store [root-key]))
+          last-key (core/last-key (assoc val :storage-addr (synthesize-storage-addr root-key)))] ; need last key to bootstrap
+      (<? S (core/resolve
+             (->KonserveAddr store last-key root-key (synthesize-storage-addr root-key))
+             S)))))
+
+(defn add-read-handlers [store]
+  (swap! (:read-handlers store) merge
+         {'hitchhiker.konserve.KonserveAddr
+          #(-> % map->KonserveAddr
+               (assoc :store store
+                      :storage-addr (synthesize-storage-addr (:konserve-key %))))
+          'hitchhiker.tree.core.DataNode
+          (fn [{:keys [children cfg]}]
+            (core/->DataNode (into (sorted-map-by
+                                    compare) children)
+                             (promise)
+                             cfg))
+          'hitchhiker.tree.core.IndexNode
+          (fn [{:keys [children cfg op-buf]}]
+            (core/->IndexNode (->> children
+                                   #_((fn [e] (prn "reading" e) e))
+                                   catvec)
+                              (promise)
+                              (catvec op-buf)
+                              cfg))
+          'hitchhiker.tree.messaging.InsertOp
+          msg/map->InsertOp
+          'hitchhiker.tree.messaging.DeleteOp
+          msg/map->DeleteOp
+          'hitchhiker.tree.core.Config
+          core/map->Config})
+  store)
 
 (comment
 
 
-  (def store
-    (let [store (<!! #_(new-mem-store)
-                     (new-fs-store "/tmp/async-tree-experiment-new"
-                                   #_:write-handlers #_(atom {durable_persistence.b_tree.IndexNode (fn [n] #_(prn "in" n) n)
-                                                              durable_persistence.b_tree.DataNode (fn [n] #_(prn "dn" n) n)})
-                                   :read-handlers (atom {})
-                                   :config {:fsync true}))]
-      (reset! (:read-handlers store) {'hitchhiker.konserve.KonserveAddr
-                                      #(-> % map->KonserveAddr (assoc :store store
-                                                                      :storage-addr (synthesize-storage-addr (:konserve-key %))))
-                                      'hitchhiker.tree.core.DataNode
-                                      (fn [{:keys [children cfg]}]
-                                        (core/->DataNode (into (sorted-map-by
-                                                                compare) children)
-                                                         (promise)
-                                                         cfg))
-                                      'hitchhiker.tree.core.IndexNode
-                                      (fn [{:keys [children cfg op-buf]}]
-                                        (core/->IndexNode (->> children
-                                                               #_((fn [e] (prn "reading" e) e))
-                                                               catvec)
-                                                          (promise)
-                                                          (catvec op-buf)
-                                                          cfg))
-                                      'hitchhiker.tree.messaging.InsertOp
-                                      msg/map->InsertOp
-                                      'hitchhiker.tree.messaging.DeleteOp
-                                      msg/map->DeleteOp
-                                      'hitchhiker.tree.core.Config
-                                      core/map->Config})
-      store))
-
-
-(def my-tree (core/flush-tree
-              (time (reduce (fn [t i]
-;                              ^{:break/when (> i 49)}
-                              (msg/insert t i i))
-                            (core/b-tree (core/->Config 17 300 (- 300 17)))
-                            (range 50000)))
-              (->KonserveBackend store)
-              ))
+  (def store (add-read-handlers (<!! (new-fs-store "/tmp/async-hitchhiker-repl"
+                                                   :config {:fsync true}))))
 
 
 
-(def my-tree-updated (core/flush-tree
-                      (msg/delete (create-tree-from-root-key store (get-root-key (:tree my-tree))) 10)
-                      (->KonserveBackend store)
-                      ))
+  (def my-tree (<!! (core/flush-tree
+                     (time (reduce (fn [t i]
+                                        ;                              ^{:break/when (> i 49)}
+                                     (<!! (msg/insert t i i)))
+                                   (<!! (core/b-tree (core/->Config 17 300 (- 300 17))))
+                                   (range 20000)))
+                     (->KonserveBackend store)
+                     )))
+
+
+
+  (def my-tree-updated (<!! (core/flush-tree
+                             (<!! (msg/delete (<!! (create-tree-from-root-key store (get-root-key (:tree my-tree)))) 10))
+                             (->KonserveBackend store)
+                             )))
 
 
 
 
-(time (msg/lookup (create-tree-from-root-key store (get-root-key (:tree my-tree))) 1001))
+  (time (<!! (msg/lookup (<!! (create-tree-from-root-key store (get-root-key (:tree my-tree-updated)))) 100)))
 
 (reduce (fn [t i]
           (let [st (System/currentTimeMillis)
-                tree (:tree (core/flush-tree (msg/insert t i i)
-                                                  (->KonserveBackend store)))]
+                tree (:tree (<!! (core/flush-tree (<!! (msg/insert t i i))
+                                                  (->KonserveBackend store))))]
             (when (= (mod i 100) 0)
               (let [delta (- (System/currentTimeMillis)
                              st)]
                 (println "Op for" i " took " delta " ms")))
             tree))
-        (core/b-tree (core/->Config 17 300 (- 300 17)))
+        (<!! (core/b-tree (core/->Config 17 300 (- 300 17))))
         (range 20000))
 
+
+(msg/lookup-fwd-iter (<!! (create-tree-from-root-key store (get-root-key (:tree my-tree))))
+                     19899)
 
 
 
