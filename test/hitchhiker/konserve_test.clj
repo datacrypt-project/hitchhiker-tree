@@ -9,13 +9,13 @@
             [hitchhiker.tree.core :as core]
             hitchhiker.tree.core-test
             [hitchhiker.tree.messaging :as msg]
-            [clojure.core.async :refer [<!!]]))
+            [clojure.core.async :refer [<!! promise-chan]]))
 
 (defn setup-store [folder]
   (let [read-handlers (atom {})
-          store (<!! (new-fs-store folder
-                                   :read-handlers read-handlers
-                                   :config {:fsync true}))]
+        store (<!! (new-fs-store folder
+                                 :read-handlers read-handlers
+                                 :config {:fsync true}))]
       (reset! read-handlers {'hitchhiker.konserve.KonserveAddr
                              #(-> % kons/map->KonserveAddr
                                   (assoc :store store
@@ -24,14 +24,13 @@
                              (fn [{:keys [children cfg]}]
                                (core/->DataNode (into (sorted-map-by
                                                        compare) children)
-                                                (promise)
+                                                (promise-chan)
                                                 cfg))
                              'hitchhiker.tree.core.IndexNode
                              (fn [{:keys [children cfg op-buf]}]
                                (core/->IndexNode (->> children
-                                                      #_((fn [e] (prn "reading" e) e))
                                                       catvec)
-                                                 (promise)
+                                                 (promise-chan)
                                                  (catvec op-buf)
                                                  cfg))
                              'hitchhiker.tree.messaging.InsertOp

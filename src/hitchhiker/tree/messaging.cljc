@@ -1,10 +1,12 @@
 (ns hitchhiker.tree.messaging
   (:refer-clojure :exclude [subvec])
   (:require [clojure.core.rrb-vector :refer [catvec]]
-            [clojure.pprint :as pp]
-            [superv.async :refer [go-try S <? go-for <<? <??]]
-            [hitchhiker.tree.core :as core])
-  (:import java.io.Writer))
+            [hasch.core :refer [uuid]]
+            #?(:clj [clojure.pprint :as pp])
+            #?(:clj [hitchhiker.tree.core :refer [go-try <? <??] :as core]
+               :cljs [hitchhiker.tree.core :as core]))
+  #?(:clj (:import java.io.Writer))
+  #?(:cljs (:require-macros [hitchhiker.tree.core :refer [go-try <?]])))
 
 ;; An operation is an object with a few functions
 ;; 1. It has a function that it applies to the tree to apply its effect
@@ -29,56 +31,62 @@
   (apply-op-to-coll [_ map] (dissoc map key))
   (apply-op-to-tree [_ tree] (core/delete tree key)))
 
-(defmethod print-method InsertOp
-  [op ^Writer writer]
-  (.write writer "InsertOp")
-  (.write writer (str {:key (:key op) :value (:value op) " - " (:tag op)})))
+#?(:clj
+   (defmethod print-method InsertOp
+     [op ^Writer writer]
+     (.write writer "InsertOp")
+     (.write writer (str {:key (:key op) :value (:value op) " - " (:tag op)}))))
 
-(defmethod print-dup InsertOp
-  [op ^Writer writer]
-  (.write writer "(tree.messaging/->InsertOp ")
-  (.write writer (pr-str (:key op)))
-  (.write writer ", ")
-  (.write writer (pr-str (:value op)))
-  (.write writer ")"))
+#?(:clj
+   (defmethod print-dup InsertOp
+     [op ^Writer writer]
+     (.write writer "(tree.messaging/->InsertOp ")
+     (.write writer (pr-str (:key op)))
+     (.write writer ", ")
+     (.write writer (pr-str (:value op)))
+     (.write writer ")")))
 
-(defmethod pp/simple-dispatch InsertOp
-  [op]
-  (print op))
+#?(:clj
+   (defmethod pp/simple-dispatch InsertOp
+     [op]
+     (print op)))
 
-(defmethod print-method DeleteOp
-  [op ^Writer writer]
-  (.write writer "DeleteOp")
-  (.write writer (str {:key (:key op)} " - " (:tag op))))
+#?(:clj
+  (defmethod print-method DeleteOp
+    [op ^Writer writer]
+    (.write writer "DeleteOp")
+    (.write writer (str {:key (:key op)} " - " (:tag op)))))
 
-(defmethod print-dup DeleteOp
-  [op ^Writer writer]
-  (.write writer "(tree.messaging/->DeleteOp ")
-  (.write writer (pr-str (:key op)))
-  (.write writer ")"))
+#?(:clj
+   (defmethod print-dup DeleteOp
+     [op ^Writer writer]
+     (.write writer "(tree.messaging/->DeleteOp ")
+     (.write writer (pr-str (:key op)))
+     (.write writer ")")))
 
-(defmethod pp/simple-dispatch DeleteOp
-  [op]
-  (print op))
+#?(:clj
+   (defmethod pp/simple-dispatch DeleteOp
+     [op]
+     (print op)))
 
 (defn enqueue
   ([tree msgs]
-   (go-try S
+   (go-try
      (let [deferred-ops (atom [])
-           msg-buffers-propagated (<? S (enqueue tree msgs deferred-ops))]
+           msg-buffers-propagated (<? (enqueue tree msgs deferred-ops))]
                                         ;(when (seq @deferred-ops) (println "appyling deferred ops" @deferred-ops))
        (loop [tree msg-buffers-propagated
               [op & r] @deferred-ops]
          (if op
-           (recur (<? S (apply-op-to-tree op tree)) r)
+           (recur (<? (apply-op-to-tree op tree)) r)
            tree))
        #_(reduce (fn [tree op]
                    (apply-op-to-tree op tree))
                  msg-buffers-propagated
                  @deferred-ops))))
   ([tree msgs deferred-ops]
-   (go-try S
-     (let [tree (<? S (core/resolve tree S))]
+   (go-try
+     (let [tree (<? (core/resolve tree))]
        (cond
          (core/data-node? tree) ; need to return ops to apply to the tree proper...
          (do (swap! deferred-ops into msgs)
@@ -116,13 +124,13 @@
                      new-child
                      (cond
                        (and on-the-last-child? (seq extra-msgs))
-                       (<? S (enqueue (<? S (core/resolve child S))
-                                      (catvec took-msgs extra-msgs)
-                                      deferred-ops))
+                       (<? (enqueue (<? (core/resolve child))
+                                    (catvec took-msgs extra-msgs)
+                                    deferred-ops))
                        (seq took-msgs) ; save a write
-                       (<? S (enqueue (<? S (core/resolve child S))
-                                      took-msgs
-                                      deferred-ops))
+                       (<? (enqueue (<? (core/resolve child))
+                                    took-msgs
+                                    deferred-ops))
                        :else
                        child)]
 
@@ -205,38 +213,40 @@
   ([tree key]
    (lookup tree key nil))
   ([tree key not-found]
-   (go-try S
-     (let [path (<? S (core/lookup-path tree key))
+   (go-try
+     (let [path (<? (core/lookup-path tree key))
            expanded (apply-ops-in-path path)]
        (get expanded key not-found)))))
 
 (defn insert
   [tree key value]
   (enqueue tree [(assoc (->InsertOp key value)
-                        :tag (java.util.UUID/randomUUID)
+                        :tag (uuid)
                         )]))
 
 (defn delete
   [tree key]
   (enqueue tree [(assoc (->DeleteOp key)
-                        :tag (java.util.UUID/randomUUID)
+                        :tag (uuid)
                         )]))
 
-(defn forward-iterator
-  "Takes the result of a search and returns an iterator going
+#?(:clj
+   (defn forward-iterator
+     "Takes the result of a search and returns an iterator going
    forward over the tree. Does lg(n) backtracking sometimes."
-  [path]
-  (assert (core/data-node? (peek path)))
-  (let [first-elements (apply-ops-in-path path)
-        next-elements (lazy-seq
-                       (when-let [succ (<?? S (core/right-successor (pop path)))]
-                          (forward-iterator succ)))]
-    (concat first-elements next-elements)))
+     [path]
+     (assert (core/data-node? (peek path)))
+     (let [first-elements (apply-ops-in-path path)
+           next-elements (lazy-seq
+                          (when-let [succ (<?? (core/right-successor (pop path)))]
+                            (forward-iterator succ)))]
+       (concat first-elements next-elements))))
 
-(defn lookup-fwd-iter
-  [tree key]
-  (let [path (<?? S (core/lookup-path tree key))]
-    (when path
-      (drop-while (fn [[k v]]
-                    (neg? (core/compare k key)))
-                  (forward-iterator path)))))
+#?(:clj
+   (defn lookup-fwd-iter
+     [tree key]
+     (let [path (<?? (core/lookup-path tree key))]
+       (when path
+         (drop-while (fn [[k v]]
+                       (neg? (core/compare k key)))
+                     (forward-iterator path))))))

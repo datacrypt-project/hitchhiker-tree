@@ -1,12 +1,76 @@
 (ns hitchhiker.tree.core
   (:refer-clojure :exclude [compare resolve subvec])
   (:require [clojure.core.rrb-vector :refer [catvec subvec]]
-            [clojure.pprint :as pp]
-            [superv.async :refer [go-try S <? go-for <<? <??]]
-            [clojure.core.async :refer [go chan put! <!] :as async]
-            [taoensso.nippy :as nippy])
-  (:import java.io.Writer
-           [java.util Arrays Collections]))
+            #?(:clj [clojure.pprint :as pp])
+            #?(:clj [clojure.core.async :refer [go chan put! <! <!! promise-chan]
+                     :as async]
+               :cljs [cljs.core.async :refer [chan put! <! promise-chan]
+                      :as async])
+            #?(:cljs [goog.array])
+            #?(:clj [taoensso.nippy :as nippy]))
+  #?(:clj (:import java.io.Writer
+                   [java.util Arrays Collections]))
+  #?(:cljs (:require-macros [cljs.core.async.macros :refer [go]]
+                            [hitchhiker.tree.core :refer [go-try <?]])))
+
+
+(defn- cljs-env?
+  "Take the &env from a macro, and tell whether we are expanding into cljs."
+  [env]
+  (boolean (:ns env)))
+
+#?(:clj
+   (defmacro if-cljs
+     "Return then if we are generating cljs code and else for Clojure code.
+     https://groups.google.com/d/msg/clojurescript/iBY5HaQda4A/w1lAQi9_AwsJ"
+     [then else]
+     (if (cljs-env? &env) then else)))
+
+(defn throw-if-exception
+  "Helper method that checks if x is Exception and if yes, wraps it in a new
+  exception, passing though ex-data if any, and throws it. The wrapping is done
+  to maintain a full stack trace when jumping between multiple contexts."
+  [x]
+  (if (instance? #?(:clj Exception :cljs js/Error) x)
+    (throw (ex-info (or #?(:clj (.getMessage x)) (str x))
+                    (or (ex-data x) {})
+                    x))
+    x))
+
+#?(:clj
+   (defmacro go-try
+     "Asynchronously executes the body in a go block. Returns a channel
+  which will receive the result of the body when completed or the
+  exception if an exception is thrown. You are responsible to take
+  this exception and deal with it! This means you need to take the
+  result from the cannel at some point."
+     {:style/indent 1}
+     [ & body]
+     `(if-cljs (cljs.core.async.macros/go
+                 (try ~@body
+                      (catch js/Error e#
+                        e#)))
+               (go
+                 (try
+                   ~@body
+                   (catch Exception e#
+                     e#))))))
+
+#?(:clj
+   (defmacro <?
+     "Same as core.async <! but throws an exception if the channel returns a
+throwable error."
+     [ch]
+     `(if-cljs (throw-if-exception (cljs.core.async/<! ~ch))
+               (throw-if-exception (<! ~ch)))))
+
+
+#?(:clj
+   (defn <??
+     "Same as core.async <!! but throws an exception if the channel returns a
+throwable error."
+     [ch]
+     (throw-if-exception (<!! ch))))
 
 (defrecord Config [index-b data-b op-buf-size])
 
@@ -20,7 +84,7 @@
   (last-key [_] "Returns the rightmost key of the node")
   (dirty? [_] "Returns true if this should be flushed")
   ;;TODO resolve should be instrumented
-  (resolve [_ S] "Returns the INode version of this node in a go-block; could trigger IO"))
+  (resolve [_] "Returns the INode version of this node in a go-block; could trigger IO"))
 
 (defn tree-node?
   [node]
@@ -79,18 +143,22 @@
 
 (extend-protocol IKeyCompare
   ;; By default, we use the default comparator
-  Object
-  (compare [key1 key2] (clojure.core/compare key1 key2))
-  Double
-  (compare [^Double key1 key2]
-    (if (instance? Double key2)
-      (.compareTo key1 key2)
-      (clojure.core/compare key1 key2)))
-  Long
-  (compare [^Long key1 key2]
-    (if (instance? Long key2)
-      (.compareTo key1 key2))
-    (clojure.core/compare key1 key2)))
+  #?@(:clj
+      [Object
+       (compare [key1 key2] (clojure.core/compare key1 key2))
+       Double
+       (compare [^Double key1 key2]
+                (if (instance? Double key2)
+                  (.compareTo key1 key2)
+                  (clojure.core/compare key1 key2)))
+       Long
+       (compare [^Long key1 key2]
+                (if (instance? Long key2)
+                  (.compareTo key1 key2))
+                (clojure.core/compare key1 key2))]
+     :cljs
+      [object
+       (compare [key1 key2] (compare key1 key2))]))
 
 ;; TODO enforce that there always (= (count children) (inc (count keys)))
 ;;
@@ -104,11 +172,13 @@
   [children]
   (mapv last-key (butlast children)))
 
+(declare ->IndexNode)
+
 (defrecord IndexNode [children storage-addr op-buf cfg]
   IResolve
   (index? [this] true)
-  (dirty? [this] (not (realized? storage-addr)))
-  (resolve [this S] (go this)) ;;TODO this is a hack for testing
+  (dirty? [this] (not (async/poll! storage-addr)))
+  (resolve [this] (go this)) ;;TODO this is a hack for testing
   (last-key [this]
     ;;TODO should optimize by caching to reduce IOps (can use monad)
     (last-key (peek children)))
@@ -124,17 +194,17 @@
                                            ;;TODO this should use msg/affects-key
                                            (sort-by :key op-buf))]
       (->Split (->IndexNode (subvec children 0 b)
-                            (promise)
+                            (promise-chan)
                             (vec left-buf)
                             cfg)
                (->IndexNode (subvec children b)
-                            (promise)
+                            (promise-chan)
                             (vec right-buf)
                             cfg)
               median)))
   (merge-node [this other]
     (->IndexNode (catvec children (:children other))
-                 (promise)
+                 (promise-chan)
                  (catvec op-buf (:op-buf other))
                  cfg))
   (lookup [root key]
@@ -143,72 +213,80 @@
           a (object-array l)
           _ (dotimes [i l]
               (aset a i (last-key (nth children i))))
-          x (Arrays/binarySearch a 0 l key compare)]
+          x #?(:clj (Arrays/binarySearch a 0 l key compare)
+               :cljs (goog.array/binarySearch a key compare))]
       (if (neg? x)
         (- (inc x))
         x))))
 
-(nippy/extend-freeze IndexNode :b-tree/index-node
-                     [{:keys [storage-addr cfg children op-buf]} data-output]
-                     (nippy/freeze-to-out! data-output cfg)
-                     (nippy/freeze-to-out! data-output children)
-                     ;;TODO apparently RRB-vectors don't freeze correctly;
-                     ;;we'll force it to a normal vector as a workaround
-                     (nippy/freeze-to-out! data-output (into [] op-buf)))
+#?(:clj
+   (nippy/extend-freeze IndexNode :b-tree/index-node
+                        [{:keys [storage-addr cfg children op-buf]} data-output]
+                        (nippy/freeze-to-out! data-output cfg)
+                        (nippy/freeze-to-out! data-output children)
+                        ;;TODO apparently RRB-vectors don't freeze correctly;
+                        ;;we'll force it to a normal vector as a workaround
+                        (nippy/freeze-to-out! data-output (into [] op-buf))))
 
-(nippy/extend-thaw :b-tree/index-node
-                   [data-input]
-                   (let [cfg (nippy/thaw-from-in! data-input)
-                         children (nippy/thaw-from-in! data-input)
-                         op-buf (nippy/thaw-from-in! data-input)]
-                     (->IndexNode children nil op-buf cfg)))
+#?(:clj
+   (nippy/extend-thaw :b-tree/index-node
+                      [data-input]
+                      (let [cfg (nippy/thaw-from-in! data-input)
+                            children (nippy/thaw-from-in! data-input)
+                            op-buf (nippy/thaw-from-in! data-input)]
+                        (->IndexNode children nil op-buf cfg))))
 
 (defn index-node?
   [node]
   (instance? IndexNode node))
 
-(defn print-index-node
-  "Optionally include"
-  [node ^Writer writer fully-qualified?]
-  (.write writer (if fully-qualified?
-                   (pr-str IndexNode)
-                   "IndexNode"))
-  (.write writer (str {:keys (index-node-keys (:children node))
-                       :children (:children node)})))
+#?(:clj
+   (defn print-index-node
+     "Optionally include"
+     [node ^Writer writer fully-qualified?]
+     (.write writer (if fully-qualified?
+                      (pr-str IndexNode)
+                      "IndexNode"))
+     (.write writer (str {:keys (index-node-keys (:children node))
+                          :children (:children node)}))))
 
-(defmethod print-method IndexNode
-  [node writer]
-  (print-index-node node writer false))
+#?(:clj
+   (defmethod print-method IndexNode
+     [node writer]
+     (print-index-node node writer false)))
 
-(defmethod print-dup IndexNode
-  [node writer]
-  (print-index-node node writer true))
+#?(:clj
+   (defmethod print-dup IndexNode
+     [node writer]
+     (print-index-node node writer true)))
 
-(defn node-status-bits
-  [node]
-  (str "["
-       (if (dirty? node) "D" " ")
-       "]"))
+#?(:clj
+   (defn node-status-bits
+     [node]
+     (str "["
+          (if (dirty? node) "D" " ")
+          "]")))
 
-(defmethod pp/simple-dispatch IndexNode
-  [node]
-  (let [out ^Writer *out*]
-    (.write out "IndexNode")
-    (.write out (node-status-bits node))
-    (pp/pprint-logical-block
-      :prefix "{" :suffix "}"
-      (pp/pprint-logical-block
-        (.write out ":keys ")
-        (pp/write-out (index-node-keys (:children node)))
-        (pp/pprint-newline :linear))
-      (pp/pprint-logical-block
-        (.write out ":op-buf ")
-        (pp/write-out (:op-buf node))
-        (pp/pprint-newline :linear))
-      (pp/pprint-logical-block
-        (.write out ":children ")
-        (pp/pprint-newline :mandatory)
-        (pp/write-out (:children node))))))
+#?(:clj
+   (defmethod pp/simple-dispatch IndexNode
+     [node]
+     (let [out ^Writer *out*]
+       (.write out "IndexNode")
+       (.write out (node-status-bits node))
+       (pp/pprint-logical-block
+        :prefix "{" :suffix "}"
+        (pp/pprint-logical-block
+         (.write out ":keys ")
+         (pp/write-out (index-node-keys (:children node)))
+         (pp/pprint-newline :linear))
+        (pp/pprint-logical-block
+         (.write out ":op-buf ")
+         (pp/write-out (:op-buf node))
+         (pp/pprint-newline :linear))
+        (pp/pprint-logical-block
+         (.write out ":children ")
+         (pp/pprint-newline :mandatory)
+         (pp/write-out (:children node)))))))
 
 (defn nth-of-set
   "Like nth, but for sorted sets. O(n)"
@@ -218,8 +296,8 @@
 (defrecord DataNode [children storage-addr cfg]
   IResolve
   (index? [this] false)
-  (resolve [this S] (go this)) ;;TODO this is a hack for testing
-  (dirty? [this] (not (realized? storage-addr)))
+  (resolve [this] (go this)) ;;TODO this is a hack for testing
+  (dirty? [this] (not (async/poll! storage-addr)))
   (last-key [this]
     (when (seq children)
       (-> children
@@ -239,7 +317,8 @@
   (merge-node [this other]
     (data-node cfg (into children (:children other))))
   (lookup [root key]
-    (let [x (Collections/binarySearch (vec (keys children)) key compare)]
+    (let [x #?(:clj (Collections/binarySearch (vec (keys children)) key compare)
+               :cljs (goog.array/binarySearch (into-array (keys children)) key compare))]
       (if (neg? x)
         (- (inc x))
         x))))
@@ -247,46 +326,52 @@
 (defn data-node
   "Creates a new data node"
   [cfg children]
-  (->DataNode children (promise) cfg))
+  (->DataNode children (promise-chan) cfg))
 
 (defn data-node?
   [node]
   (instance? DataNode node))
 
-(nippy/extend-freeze DataNode :b-tree/data-node
-                     [{:keys [cfg children]} data-output]
-                     (nippy/freeze-to-out! data-output cfg)
-                     (nippy/freeze-to-out! data-output children))
+#?(:clj
+   (nippy/extend-freeze DataNode :b-tree/data-node
+                        [{:keys [cfg children]} data-output]
+                        (nippy/freeze-to-out! data-output cfg)
+                        (nippy/freeze-to-out! data-output children)))
 
-(nippy/extend-thaw :b-tree/data-node
-                   [data-input]
-                   (let [cfg (nippy/thaw-from-in! data-input)
-                         children (nippy/thaw-from-in! data-input)]
-                     (->DataNode children nil cfg)))
+#?(:clj
+   (nippy/extend-thaw :b-tree/data-node
+                      [data-input]
+                      (let [cfg (nippy/thaw-from-in! data-input)
+                            children (nippy/thaw-from-in! data-input)]
+                        (->DataNode children nil cfg))))
 
 ;(println (b-tree :foo :bar :baz))
 ;(pp/pprint (apply b-tree (range 100)))
-(defn print-data-node
-  [node ^Writer writer fully-qualified?]
-  (.write writer (if fully-qualified?
-                   (pr-str DataNode)
-                   "DataNode"))
-  (.write writer (str {:children (:children node)})))
+#?(:clj
+   (defn print-data-node
+     [node ^Writer writer fully-qualified?]
+     (.write writer (if fully-qualified?
+                      (pr-str DataNode)
+                      "DataNode"))
+     (.write writer (str {:children (:children node)}))))
 
-(defmethod print-method DataNode
-  [node writer]
-  (print-data-node node writer false))
+#?(:clj
+   (defmethod print-method DataNode
+     [node writer]
+     (print-data-node node writer false)))
 
-(defmethod print-dup DataNode
-  [node writer]
-  (print-data-node node writer true))
+#?(:clj
+   (defmethod print-dup DataNode
+     [node writer]
+     (print-data-node node writer true)))
 
-(defmethod pp/simple-dispatch DataNode
-  [node]
-  (let [out ^Writer *out*]
-    (.write out (str "DataNode"
-                     (node-status-bits node)))
-    (.write out (str {:children (:children node)}))))
+#?(:clj
+   (defmethod pp/simple-dispatch DataNode
+     [node]
+     (let [out ^Writer *out*]
+       (.write out (str "DataNode"
+                        (node-status-bits node)))
+       (.write out (str {:children (:children node)})))))
 
 (defn backtrack-up-path-until
   "Given a path (starting with root and ending with an index), searches backwards,
@@ -310,7 +395,7 @@
   ;(clojure.pprint/pprint path)
   ;TODO this function would benefit from a prefetching hint
   ;     to keep the next several sibs in mem
-  (go-try S
+  (go-try
     (when-let [common-parent-path
                (backtrack-up-path-until
                 path
@@ -318,13 +403,13 @@
                   (< (inc index) (count (:children parent)))))]
       (let [next-index (-> common-parent-path peek inc)
             parent (-> common-parent-path pop peek)
-            new-sibling (<? S (resolve (nth (:children parent) next-index) S))
+            new-sibling (<? (resolve (nth (:children parent) next-index)))
             ;; We must get back down to the data node
             sibling-lineage (loop [res [new-sibling]
                                     s new-sibling]
                               (let [c (-> s :children first)
                                     c (if (tree-node? c)
-                                        (<? S (resolve c S))
+                                        (<? (resolve c))
                                         c)]
                                 (if (or (index-node? c)
                                         (data-node? c))
@@ -349,24 +434,25 @@
 
 
 
-(defn forward-iterator
-  "Takes the result of a search and returns an iterator going
+#?(:clj
+   (defn forward-iterator
+     "Takes the result of a search and returns an iterator going
    forward over the tree. Does lg(n) backtracking sometimes."
-  [path start-key]
-  (let [start-node (peek path)]
-    (assert (data-node? start-node))
-    (let [first-elements (-> start-node
-                             :children ; Get the indices of it
-                             (subseq >= start-key)) ; skip to the start-index
-          next-elements (lazy-seq
-                         (when-let [succ (<?? S (right-successor (pop path)))]
-                           (forward-iterator succ start-key)))]
-      (concat first-elements next-elements))))
+     [path start-key]
+     (let [start-node (peek path)]
+       (assert (data-node? start-node))
+       (let [first-elements (-> start-node
+                                :children ; Get the indices of it
+                                (subseq >= start-key)) ; skip to the start-index
+             next-elements (lazy-seq
+                            (when-let [succ (<?? (right-successor (pop path)))]
+                              (forward-iterator succ start-key)))]
+         (concat first-elements next-elements)))))
 
 (defn lookup-path
   "Given a B-tree and a key, gets a path into the tree"
   [tree key]
-  (go-try S
+  (go-try
     (loop [path [tree] ;alternating node/index/node/index/node... of the search taken
            cur tree ;current search node
            ]
@@ -376,10 +462,10 @@
           (let [index (lookup cur key)
                 child (if (data-node? cur)
                         nil #_(nth-of-set (:children cur) index)
-                        (<? S (-> (:children cur)
+                        (<? (-> (:children cur)
                                   ;;TODO what are the semantics for exceeding on the right? currently it's trunc to the last element
                                   (nth index (peek (:children cur)))
-                                  (resolve S))))
+                                  (resolve))))
                 path' (conj path index child)]
             (recur path' child)))
         nil))))
@@ -389,24 +475,25 @@
   ([tree key]
    (lookup-key tree key nil))
   ([tree key not-found]
-   (go-try S
+   (go-try
      (->
-      (<? S (-> (<? S (lookup-path tree key))
-                (peek)
-                (resolve S)))
+      (<? (-> (<? (lookup-path tree key))
+              (peek)
+              (resolve)))
       :children
       (get key not-found)))))
 
-(defn lookup-fwd-iter
-  [tree key]
-  (let [path (<?? S (lookup-path tree key))]
-    (when path
-      (forward-iterator path key))))
+#?(:clj
+   (defn lookup-fwd-iter
+     [tree key]
+     (let [path (<?? (lookup-path tree key))]
+       (when path
+         (forward-iterator path key)))))
 
 (defn insert
   [{:keys [cfg] :as tree} key value]
-  (go-try S
-    (let [path (<? S (lookup-path tree key))
+  (go-try
+    (let [path (<? (lookup-path tree key))
           {:keys [children] :or {children (sorted-map-by compare)}} (peek path)
           updated-data-node (data-node cfg (assoc children key value))]
       (loop [node updated-data-node
@@ -414,7 +501,7 @@
         (if (empty? path)
           (if (overflow? node)
             (let [{:keys [left right median]} (split-node node)]
-              (->IndexNode [left right] (promise) [] cfg))
+              (->IndexNode [left right] (promise-chan) [] cfg))
             node)
           (let [index (peek path)
                 {:keys [children keys] :as parent} (peek (pop path))]
@@ -439,8 +526,8 @@
 
 (defn delete
   [{:keys [cfg] :as tree} key]
-  (go-try S
-    (let [path (<? S (lookup-path tree key)) ; don't care about the found key or its index
+  (go-try
+    (let [path (<? (lookup-path tree key)) ; don't care about the found key or its index
           {:keys [children] :or {children (sorted-map-by compare)}} (peek path)
           updated-data-node (data-node cfg (dissoc children key))]
       (loop [node updated-data-node
@@ -464,37 +551,37 @@
                       :else (inc index))
                     node-first? (> bigger-sibling-idx index) ; if true, `node` is left
                     merged (if node-first?
-                             (merge-node node (<? S (resolve (nth children bigger-sibling-idx) S)))
-                             (merge-node (<? S (resolve (nth children bigger-sibling-idx) S)) node))
+                             (merge-node node (<? (resolve (nth children bigger-sibling-idx))))
+                             (merge-node (<? (resolve (nth children bigger-sibling-idx))) node))
                     old-left-children (subvec children 0 (min index bigger-sibling-idx))
                     old-right-children (subvec children (inc (max index bigger-sibling-idx)))]
                 (if (overflow? merged)
                   (let [{:keys [left right median]} (split-node merged)]
                     (recur (->IndexNode (catvec (conj old-left-children left right)
                                                 old-right-children)
-                                        (promise)
+                                        (promise-chan)
                                         op-buf
                                         cfg)
                            (pop (pop path))))
                   (recur (->IndexNode (catvec (conj old-left-children merged)
                                               old-right-children)
-                                      (promise)
+                                      (promise-chan)
                                       op-buf
                                       cfg)
                          (pop (pop path)))))
               (recur (->IndexNode (assoc children index node)
-                                  (promise)
+                                  (promise-chan)
                                   op-buf
                                   cfg)
                      (pop (pop path))))))))))
 
 (defn b-tree
   [cfg & kvs]
-  (go-try S
+  (go-try
     (loop [[[k v] & r] (partition 2 kvs)
            t (data-node cfg (sorted-map-by compare))]
       (if k
-        (recur r (<? S (insert t k v)))
+        (recur r (<? (insert t k v)))
         t)))
   #_(reduce (fn [t [k v]]
             (insert t k v))
@@ -505,44 +592,51 @@
   IResolve
   (dirty? [this] false)
   (last-key [_] last-key)
-  (resolve [_ S] (go node)))
+  (resolve [_] (go node)))
 
-(defn print-testing-addr
-  [node ^Writer writer fully-qualified?]
-  (.write writer (if fully-qualified?
-                   (pr-str TestingAddr)
-                   "TestingAddr"))
-  (.write writer (str {})))
+#?(:clj
+   (defn print-testing-addr
+     [node ^Writer writer fully-qualified?]
+     (.write writer (if fully-qualified?
+                      (pr-str TestingAddr)
+                      "TestingAddr"))
+     (.write writer (str {}))))
 
-(defmethod print-method TestingAddr
-  [node writer]
-  (print-testing-addr node writer false))
+#?(:clj
+   (defmethod print-method TestingAddr
+     [node writer]
+     (print-testing-addr node writer false)))
 
-(defmethod print-dup TestingAddr
-  [node writer]
-  (print-testing-addr node writer true))
+#?(:clj
+   (defmethod print-dup TestingAddr
+     [node writer]
+     (print-testing-addr node writer true)))
 
-(defmethod pp/simple-dispatch TestingAddr
-  [node]
-  (let [out ^Writer *out*]
-    (.write out (str "TestingAddr"
-                     (node-status-bits node)))
-    (.write out (str {}))))
+#?(:clj
+   (defmethod pp/simple-dispatch TestingAddr
+     [node]
+     (let [out ^Writer *out*]
+       (.write out (str "TestingAddr"
+                        (node-status-bits node)))
+       (.write out (str {})))))
 
 (defn dirty!
   "Marks a node as being dirty if it was clean"
   [node]
   (assert (not (instance? TestingAddr node)))
-  (assoc node :storage-addr (promise)))
+  (assoc node :storage-addr (promise-chan)))
 
 ;;TODO make this a loop/recur instead of mutual recursion
 (declare flush-tree)
 
 (defn flush-children
-  [S children backend session]
-  (go-for S [c children]
-          (<? S (flush-tree c backend session)))
-  )
+  [children backend session]
+  (go-try
+      (loop [[c & r] children
+             res []]
+        (if-not c
+          res
+          (recur r (conj res (<? (flush-tree c backend session))))))))
 
 (defprotocol IBackend
   (new-session [backend] "Returns a session object that will collect stats")
@@ -555,7 +649,7 @@
   (new-session [_] (atom {:writes 0}))
   (anchor-root [_ root] root)
   (write-node [_ node session]
-    (go-try S
+    (go-try
       (swap! session update-in [:writes] inc)
       (->TestingAddr (last-key node) node)))
   (delete-addr [_ addr session ]))
@@ -565,22 +659,25 @@
    Every dirty node also gets replaced with its TestingAddr.
    These form a GC cycle, have fun with the unmanaged memory port :)"
   ([tree backend]
-   (go-try S
+   (go-try
      (let [session (new-session backend)
-           flushed (<? S (flush-tree tree backend session))
+           flushed (<? (flush-tree tree backend session))
            root (anchor-root backend flushed)]
-       {:tree (<? S (resolve root S)) ; root should never be unresolved for API
+       {:tree (<? (resolve root)) ; root should never be unresolved for API
         :stats session})))
   ([tree backend stats]
-   (go-try S
+   (go-try
      (if (dirty? tree)
        (let [cleaned-children (if (data-node? tree)
                                 (:children tree)
-                                (vec (<<? S (flush-children S (:children tree) backend stats))))
+                                ;; TODO throw on nested errors
+                                (->> (flush-children (:children tree) backend stats)
+                                     <?
+                                     catvec))
              cleaned-node (assoc tree :children cleaned-children)
-             new-addr (<? S (write-node backend cleaned-node stats))]
-         (deliver (:storage-addr tree) new-addr)
-         (when (not= new-addr @(:storage-addr tree))
+             new-addr (<? (write-node backend cleaned-node stats))]
+         (put! (:storage-addr tree) new-addr)
+         (when (not= new-addr (<? (:storage-addr tree)))
            (delete-addr backend new-addr stats))
          new-addr)
        tree))))

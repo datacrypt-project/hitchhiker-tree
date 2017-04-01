@@ -1,7 +1,6 @@
 (ns hitchhiker.tree.core-test
   (:refer-clojure :exclude [compare resolve])
   (:require [clojure.test :refer :all]
-            [superv.async :refer [<?? S]]
             [clojure.test.check :as tc]
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
@@ -13,10 +12,10 @@
     (let [data1 (data-node (->Config 3 3 2) (sorted-map 1 1 2 2 3 3 4 4 5 5))
           data2 (data-node (->Config 3 3 2) (sorted-map 6 6 7 7 8 8 9 9 10 10))
           root (->IndexNode [data1 data2] (promise) [] (->Config 3 3 2))]
-      (is (= (<?? S (lookup-key root -10)) nil) "not found key")
-      (is (= (<?? S (lookup-key root 100)) nil) "not found key")
+      (is (= (<?? (lookup-key root -10)) nil) "not found key")
+      (is (= (<?? (lookup-key root 100)) nil) "not found key")
       (dotimes [i 10]
-        (is (= (<?? S (lookup-key root (inc i))) (inc i))))))
+        (is (= (<?? (lookup-key root (inc i))) (inc i))))))
   (testing "basic fwd iterator"
     (let [data1 (data-node (->Config 3 3 2) (sorted-map 1 1 2 2 3 3 4 4 5 5))
           data2 (data-node (->Config 3 3 2) (sorted-map 6 6 7 7 8 8 9 9 10 10))
@@ -31,13 +30,13 @@
 
 (defn insert-helper
   [t k]
-  (<?? S (insert t k k)))
+  (<?? (insert t k k)))
 
 (def added-keys-appear-in-order
   (prop/for-all [v (gen/vector gen/int)]
                 (let [sorted-set-order (into (sorted-set) v)
                       b-tree (reduce insert-helper
-                                     (<?? S (b-tree (->Config 3 3 2)))
+                                     (<?? (b-tree (->Config 3 3 2)))
                                      v)
                       b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)]
                   (= (seq sorted-set-order) (seq (map first b-tree-order))))))
@@ -50,7 +49,7 @@
   1000
   (prop/for-all [v (gen/vector gen/int)]
                 (let [sorted-set-order (into (sorted-set) v)
-                      b-tree (reduce insert-helper (<?? S (b-tree (->Config 3 3 2))) v)
+                      b-tree (reduce insert-helper (<?? (b-tree (->Config 3 3 2))) v)
                       b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)]
                   (= (seq sorted-set-order) (seq (map first b-tree-order))))))
 
@@ -60,22 +59,22 @@
                  num gen/nat]
                 (let [set-a (sort the-set)
                       set-b (take num the-set)
-                      b-tree (reduce insert-helper (<?? S (b-tree (->Config 3 3 2))) set-a)
-                      b-tree-without (reduce #(<?? S (delete %1 %2)) b-tree set-b)
+                      b-tree (reduce insert-helper (<?? (b-tree (->Config 3 3 2))) set-a)
+                      b-tree-without (reduce #(<?? (delete %1 %2)) b-tree set-b)
                       b-tree-order (lookup-fwd-iter b-tree-without Integer/MIN_VALUE)]
                   (= (seq (remove (set set-b) set-a)) (seq (map first b-tree-order))))))
 
 (deftest insert-test
   (let [data1 (data-node (->Config 3 3 2) (sorted-map 1 "1" 2 "2" 3 "3" 4 "4"))
         root (->IndexNode [data1] (promise) [] (->Config 3 3 2))]
-    (is (= (map second (lookup-fwd-iter (<?? S (insert root 3 "3")) -10)) ["1" "2" "3" "4"]))
-    (are [x] (= (map second (lookup-fwd-iter (<?? S (insert root x (str x))) -10)) (sort (map str (conj [1 2 3 4] x))))
+    (is (= (map second (lookup-fwd-iter (<?? (insert root 3 "3")) -10)) ["1" "2" "3" "4"]))
+    (are [x] (= (map second (lookup-fwd-iter (<?? (insert root x (str x))) -10)) (sort (map str (conj [1 2 3 4] x))))
          0
          2.5
          5))
   (let [data1 (data-node (->Config 3 3 2) (sorted-map 1 1 2 2 3 3 4 4 5 5))
         root (->IndexNode [data1] (promise) [] (->Config 3 3 2))]
-    (are [x y] (= (map first (lookup-fwd-iter (<?? S (insert root x x)) y))
+    (are [x y] (= (map first (lookup-fwd-iter (<?? (insert root x x)) y))
                   (drop-while
                     #(< % y)
                     (sort (conj [1 2 3 4 5] x))))
@@ -84,12 +83,12 @@
          5.5 3)))
 
 (deftest simple-delete-tests
-  (let [tree (reduce insert-helper (<?? S (b-tree (->Config 3 3 2))) (range 5))]
-    (is (= (map first (lookup-fwd-iter (<?? S (delete tree 3)) 0)) [0 1 2 4])))
-  (let [tree (reduce insert-helper (<?? S (b-tree (->Config 3 3 2))) (range 10))]
-    (is (= (map first (lookup-fwd-iter (<?? S (delete tree 0)) 0)) (map inc (range 9)))))
-  (let [tree (reduce insert-helper (<?? S (b-tree (->Config 3 3 2))) (range 6))]
-    (is (= (map first (lookup-fwd-iter (<?? S (delete tree 0)) 0)) (map inc (range 5))))))
+  (let [tree (reduce insert-helper (<?? (b-tree (->Config 3 3 2))) (range 5))]
+    (is (= (map first (lookup-fwd-iter (<?? (delete tree 3)) 0)) [0 1 2 4])))
+  (let [tree (reduce insert-helper (<?? (b-tree (->Config 3 3 2))) (range 10))]
+    (is (= (map first (lookup-fwd-iter (<?? (delete tree 0)) 0)) (map inc (range 9)))))
+  (let [tree (reduce insert-helper (<?? (b-tree (->Config 3 3 2))) (range 6))]
+    (is (= (map first (lookup-fwd-iter (<?? (delete tree 0)) 0)) (map inc (range 5))))))
 
 (defn check-node-is-balanced
   "Given a node, checks that it's balanced.
@@ -117,13 +116,13 @@
 (defspec test-balanced-after-many-inserts
   1000
   (prop/for-all [the-set (gen/vector (gen/no-shrink gen/int))]
-                (let [b-tree (reduce insert-helper (<?? S (b-tree (->Config 3 3 2))) the-set)]
+                (let [b-tree (reduce insert-helper (<?? (b-tree (->Config 3 3 2))) the-set)]
                   (check-node-is-balanced b-tree))))
 
 (defspec test-wider-balanced-after-many-inserts
   1000
   (prop/for-all [the-set (gen/vector (gen/no-shrink gen/int))]
-                (let [b-tree (reduce insert-helper (<?? S (b-tree (->Config 200 250 17))) the-set)]
+                (let [b-tree (reduce insert-helper (<?? (b-tree (->Config 200 250 17))) the-set)]
                   (check-node-is-balanced b-tree))))
 
 #_(require '[criterium.core :refer (quick-bench)])
@@ -149,8 +148,8 @@
                                          (let [x-reduced (mod x universe-size)]
                                            (condp = op
                                              :add (insert-helper t x-reduced)
-                                             :del (<?? S (delete t x-reduced)))))
-                                       (<?? S (b-tree (->Config 3 3 2)))
+                                             :del (<?? (delete t x-reduced)))))
+                                       (<?? (b-tree (->Config 3 3 2)))
                                        ops)]
   ;                  (println ops)
                     (check-node-is-balanced b-tree)))))
@@ -174,10 +173,14 @@
   1000
   (prop/for-all [v (gen/vector gen/int)]
                 (let [sorted-set-order (into (sorted-set) v)
-                      b-tree (reduce insert-helper (<?? S (b-tree (->Config 3 3 2))) v)
+                      b-tree (reduce insert-helper (<?? (b-tree (->Config 3 3 2))) v)
                       b-tree-order (map first (lookup-fwd-iter b-tree Integer/MIN_VALUE))
-                      flushed-tree (:tree (<?? S (flush-tree b-tree (->TestingBackend))))
+                      flushed-tree (:tree (<?? (flush-tree b-tree (->TestingBackend))))
                       flushed-tree-order (map first (lookup-fwd-iter flushed-tree Integer/MIN_VALUE))]
+                  (when-not (= (seq sorted-set-order)
+                               (seq b-tree-order)
+                               (seq flushed-tree-order))
+                    (prn "FT" sorted-set-order b-tree-order flushed-tree-order))
                   (= (seq sorted-set-order)
                      (seq b-tree-order)
                      (seq flushed-tree-order)))))
