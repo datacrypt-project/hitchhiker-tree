@@ -110,9 +110,13 @@
   (go-try (def foo (<? (msg/insert (<? (core/b-tree (core/->Config 17 300 (- 300 17))))
                                1 1))))
 
-  (go-try (prn (<? (msg/insert (<? (msg/insert (<? (core/b-tree (core/->Config 17 300 (- 300 17))))
+  (go-try (def foos (<? (msg/insert (<? (msg/insert (<? (core/b-tree (core/->Config 17 300 (- 300 17))))
                                                1 1))
                                2 2))))
+
+  (go-try (def bar (<? (msg/delete foos 2))))
+
+
 
   (go-try
    (prn "foo"

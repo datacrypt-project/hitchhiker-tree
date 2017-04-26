@@ -26,10 +26,15 @@
                                   [figwheel-sidecar "0.5.8"]
                                   [com.cemerick/piggieback "0.2.1"]
                                   [org.clojure/test.check "0.9.0"]]
-                   ;; need to add dev source path here to get user.clj loaded
                    :source-paths ["src" "dev"]
-                   ;; for CIDER
-                   ;; :plugins [[cider/cider-nrepl "0.12.0"]]
+                   ;; need to add dev source path here to get user.clj loaded
+                   ;; TODO check whether this still makes sense,
+                   ;; workaround for cider cljs REPL
+                   #_:figwheel #_{:nrepl-port 7888
+                              :nrepl-middleware ["cider.nrepl/cider-middleware"
+                                                 "cemerick.piggieback/wrap-cljs-repl"]}
+                   :plugins [[lein-figwheel "0.5.8"]
+                             #_[cider/cider-nrepl "0.15.0-SNAPSHOT"]]
                    :repl-options {; for nREPL dev you really need to limit output
                                   :init (set! *print-length* 50)
                                   :nrepl-middleware [cemerick.piggieback/wrap-cljs-repl]}}}

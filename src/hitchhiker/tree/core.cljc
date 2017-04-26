@@ -157,8 +157,10 @@ throwable error."
                   (.compareTo key1 key2))
                 (clojure.core/compare key1 key2))]
      :cljs
-      [object
-       (compare [key1 key2] (compare key1 key2))]))
+      [number
+       (compare [key1 key2] (cljs.core/compare key1 key2))
+       object
+       (compare [key1 key2] (cljs.core/compare key1 key2))]))
 
 ;; TODO enforce that there always (= (count children) (inc (count keys)))
 ;;
