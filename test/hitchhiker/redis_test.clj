@@ -26,7 +26,7 @@
                                     [flush-freq (gen/return [:flush])]
                                     [del-freq (gen/tuple (gen/return :del)
                                                          (gen/no-shrink gen/int))]])
-                                 0)]
+                                 num-ops)]
                 (assert (let [ks (wcar {} (car/keys "*"))]
                           (or (empty? ks)
                               (= ["refcount:expiry"] ks)))
