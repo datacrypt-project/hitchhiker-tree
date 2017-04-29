@@ -5,7 +5,7 @@
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
-            [konserve.filestore :refer [new-fs-store delete-store]]
+            [konserve.filestore :refer [new-fs-store delete-store list-keys]]
             [hitchhiker.konserve :as kons]
             [hitchhiker.tree.core :refer [<??] :as core]
             hitchhiker.tree.core-test
@@ -92,12 +92,11 @@
                                     [del-freq (gen/tuple (gen/return :del)
                                                          (gen/no-shrink gen/int))]])
                                  num-ops)]
-                #_(assert (let [ks (wcar {} (car/keys "*"))]
-                          (or (empty? ks)
-                              (= ["refcount:expiry"] ks)))
-                        "Start with no keys")
+                
                 (let [folder "/tmp/konserve-mixed-workload"
                       store (setup-store folder)
+                      _ (assert (empty? (<?? (list-keys store)))
+                                "Start with no keys")
                       [b-tree root set]
                       (reduce (fn [[t root set] [op x]]
                                        (let [x-reduced (when x (mod x universe-size))]
