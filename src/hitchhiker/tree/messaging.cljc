@@ -2,6 +2,8 @@
   (:refer-clojure :exclude [subvec])
   (:require [clojure.core.rrb-vector :refer [catvec]]
             [hasch.core :refer [uuid]]
+            #?(:clj [clojure.core.async :as async]
+               :cljs [cljs.core.async :as async])
             #?(:clj [clojure.pprint :as pp])
             #?(:clj [hitchhiker.tree.core :refer [go-try <? <??] :as core]
                :cljs [hitchhiker.tree.core :as core]))
@@ -86,7 +88,7 @@
                  @deferred-ops))))
   ([tree msgs deferred-ops]
    (go-try
-     (let [tree (<? (core/resolve tree))]
+       (let [tree (<? (core/resolve tree))]
        (cond
          (core/data-node? tree) ; need to return ops to apply to the tree proper...
          (do (swap! deferred-ops into msgs)
@@ -129,7 +131,7 @@
                                     deferred-ops))
                        (seq took-msgs) ; save a write
                        (<? (enqueue (<? (core/resolve child))
-                                    took-msgs
+                                    (catvec took-msgs)
                                     deferred-ops))
                        :else
                        child)]
@@ -230,23 +232,28 @@
                         :tag (uuid)
                         )]))
 
-#?(:clj
-   (defn forward-iterator
-     "Takes the result of a search and returns an iterator going
-   forward over the tree. Does lg(n) backtracking sometimes."
-     [path]
-     (assert (core/data-node? (peek path)))
-     (let [first-elements (apply-ops-in-path path)
-           next-elements (lazy-seq
-                          (when-let [succ (<?? (core/right-successor (pop path)))]
-                            (forward-iterator succ)))]
-       (concat first-elements next-elements))))
+(defn forward-iterator
+  "Takes the result of a search and puts the iterated elements onto iter-ch
+  going forward over the tree as needed. Does lg(n) backtracking sometimes."
+  [iter-ch path start-key]
+  (go-try
+      (loop [path path]
+        (if path
+          (let  [_ (assert (core/data-node? (peek path)))
+                 elements (drop-while (fn [[k v]]
+                                        (neg? (core/compare k start-key)))
+                                      (apply-ops-in-path path))]
+            (<? (async/onto-chan iter-ch elements false))
+            (recur (<? (core/right-successor (pop path)))))
+          (async/close! iter-ch)))))
 
-#?(:clj
-   (defn lookup-fwd-iter
-     [tree key]
-     (let [path (<?? (core/lookup-path tree key))]
-       (when path
-         (drop-while (fn [[k v]]
-                       (neg? (core/compare k key)))
-                     (forward-iterator path))))))
+(defn lookup-fwd-iter
+  "Compatibility helper to clojure sequences. Please prefer the channel
+  interface of forward-iterator, as this function blocks your thread, which
+  disturbs async contexts and might lead to poor performance. It is mainly here
+  to facilitate testing or for exploration on the REPL."
+  [tree key]
+  (let [path (<?? (core/lookup-path tree key))
+        iter-ch (async/chan)]
+    (forward-iterator iter-ch path key)
+    (core/chan-seq iter-ch)))

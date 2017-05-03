@@ -14,6 +14,8 @@
                             [hitchhiker.tree.core :refer [go-try <?]])))
 
 
+;; cljs macro environment
+
 (defn- cljs-env?
   "Take the &env from a macro, and tell whether we are expanding into cljs."
   [env]
@@ -25,6 +27,9 @@
      https://groups.google.com/d/msg/clojurescript/iBY5HaQda4A/w1lAQi9_AwsJ"
      [then else]
      (if (cljs-env? &env) then else)))
+
+
+;; core.async helpers
 
 (defn throw-if-exception
   "Helper method that checks if x is Exception and if yes, wraps it in a new
@@ -43,7 +48,7 @@
   which will receive the result of the body when completed or the
   exception if an exception is thrown. You are responsible to take
   this exception and deal with it! This means you need to take the
-  result from the cannel at some point."
+  result from the channel at some point."
      {:style/indent 1}
      [ & body]
      `(if-cljs (cljs.core.async.macros/go
@@ -71,6 +76,19 @@ throwable error."
 throwable error."
      [ch]
      (throw-if-exception (<!! ch))))
+
+(defn reduce<
+  "Reduces over a sequence s with a go function go-f given the initial value
+  init."
+  [go-f init s]
+  (go-try
+   (loop [res init
+          [f & r] s]
+     (if f
+       (recur (<? (go-f res f)) r)
+       res))))
+
+;; core code
 
 (defrecord Config [index-b data-b op-buf-size])
 
@@ -180,7 +198,7 @@ throwable error."
   IResolve
   (index? [this] true)
   (dirty? [this] (not (async/poll! storage-addr)))
-  (resolve [this] (go this)) ;;TODO this is a hack for testing
+  (resolve [this] (go this)) 
   (last-key [this]
     ;;TODO should optimize by caching to reduce IOps (can use monad)
     (last-key (peek children)))
@@ -298,7 +316,7 @@ throwable error."
 (defrecord DataNode [children storage-addr cfg]
   IResolve
   (index? [this] false)
-  (resolve [this] (go this)) ;;TODO this is a hack for testing
+  (resolve [this] (go this)) 
   (dirty? [this] (not (async/poll! storage-addr)))
   (last-key [this]
     (when (seq children)
@@ -435,21 +453,21 @@ throwable error."
             (into path-suffix))))))
 
 
-
-#?(:clj
-   (defn forward-iterator
-     "Takes the result of a search and returns an iterator going
-   forward over the tree. Does lg(n) backtracking sometimes."
-     [path start-key]
-     (let [start-node (peek path)]
-       (assert (data-node? start-node))
-       (let [first-elements (-> start-node
-                                :children ; Get the indices of it
-                                (subseq >= start-key)) ; skip to the start-index
-             next-elements (lazy-seq
-                            (when-let [succ (<?? (right-successor (pop path)))]
-                              (forward-iterator succ start-key)))]
-         (concat first-elements next-elements)))))
+(defn forward-iterator
+  "Takes the result of a search and puts the iterated elements onto iter-ch
+  going forward over the tree as needed. Does lg(n) backtracking sometimes."
+  [iter-ch path start-key]
+  (go-try
+      (loop [path path]
+        (if path
+          (let  [start-node (peek path)
+                 _ (assert (data-node? start-node))
+                 elements (-> start-node
+                              :children ; Get the indices of it
+                              (subseq >= start-key))]
+            (<? (async/onto-chan iter-ch elements false))
+            (recur (<? (right-successor (pop path)))))
+          (async/close! iter-ch)))))
 
 (defn lookup-path
   "Given a B-tree and a key, gets a path into the tree"
@@ -485,12 +503,24 @@ throwable error."
       :children
       (get key not-found)))))
 
+;; this is only for the REPL and testing
+#?(:clj
+   (defn chan-seq [ch]
+     (when-some [v (<?? ch)]
+       (cons v (lazy-seq (chan-seq ch))))))
+
+
 #?(:clj
    (defn lookup-fwd-iter
+     "Compatibility helper to clojure sequences. Please prefer the channel
+  interface of forward-iterator, as this function blocks your thread, which
+  disturbs async contexts and might lead to poor performance. It is mainly here
+  to facilitate testing."
      [tree key]
-     (let [path (<?? (lookup-path tree key))]
-       (when path
-         (forward-iterator path key)))))
+     (let [path (<?? (lookup-path tree key))
+           iter-ch (chan)]
+       (forward-iterator iter-ch path key)
+       (chan-seq iter-ch))))
 
 (defn insert
   [{:keys [cfg] :as tree} key value]
@@ -524,7 +554,7 @@ throwable error."
                      (pop (pop path))))))))))
 
 ;;TODO: cool optimization: when merging children, push as many operations as you can
-;;into them to opportunisitcally minimize overall IO costs
+;;into them to opportunistically minimize overall IO costs
 
 (defn delete
   [{:keys [cfg] :as tree} key]

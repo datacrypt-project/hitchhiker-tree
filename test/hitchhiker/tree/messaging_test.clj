@@ -153,7 +153,7 @@
   (mixed-op-seq 0.5 250 5000))
 
 (defspec test-many-keys-bigger-trees
-  100
+  1000
   (mixed-op-seq 0.8 1000 1000))
 
 (defspec test-sparse-ops

@@ -5,7 +5,14 @@
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
-            [hitchhiker.tree.core :refer :all]))
+            [hitchhiker.tree.core :refer :all]
+            [clojure.core.async :as async]))
+
+(deftest reduce<-test
+  (is (= 45 (<?? (reduce< (fn [res s]
+                            (go-try (+ res s)))
+                          0
+                          (range 10))))))
 
 (deftest simple-read-only-behavior
   (testing "Basic searches"
@@ -63,6 +70,7 @@
                       b-tree-without (reduce #(<?? (delete %1 %2)) b-tree set-b)
                       b-tree-order (lookup-fwd-iter b-tree-without Integer/MIN_VALUE)]
                   (= (seq (remove (set set-b) set-a)) (seq (map first b-tree-order))))))
+
 
 (deftest insert-test
   (let [data1 (data-node (->Config 3 3 2) (sorted-map 1 "1" 2 "2" 3 "3" 4 "4"))
