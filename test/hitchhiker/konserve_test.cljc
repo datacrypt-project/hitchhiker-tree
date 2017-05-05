@@ -13,6 +13,7 @@
             [hitchhiker.tree.core #?(:clj :refer :cljs :refer-macros)
              [<?? <? go-try] :as core]
             [hitchhiker.tree.messaging :as msg]
+            [hitchhiker.ops :refer [recorded-ops]]
             #?(:cljs [cljs.core.async :refer [promise-chan] :as async]
                :clj [clojure.core.async :refer [promise-chan] :as async])
             #?(:cljs [cljs.nodejs :as nodejs])))
@@ -23,14 +24,12 @@
      (enable-console-print!)))
 
 
-;; for cljs tests
-#?(:cljs
-   (defn iter-helper [tree key]
-     (go-try
-         (let [iter-ch (async/chan)
-               path (<? (core/lookup-path tree key))]
-           (msg/forward-iterator iter-ch path key)
-           (<? (async/into [] iter-ch))))))
+(defn iter-helper [tree key]
+  (go-try
+      (let [iter-ch (async/chan)
+            path (<? (core/lookup-path tree key))]
+        (msg/forward-iterator iter-ch path key)
+        (<? (async/into [] iter-ch)))))
 
 
 (deftest simple-konserve-test
@@ -94,10 +93,57 @@
   [t k]
   (msg/insert t k k))
 
-#?(:clj
-  (defn lookup-fwd-iter
-    [t v]
-    (seq (map first (msg/lookup-fwd-iter t v)))))
+(comment
+  (def recorded-ops (atom []))
+
+  (binding [*print-length* -1]
+    (spit "/tmp/ops" (pr-str (vec (take 100 @recorded-ops)))))
+
+  (count @recorded-ops)
+
+  (first @recorded-ops))
+
+(defn ops-test [ops universe-size]
+  (go-try
+      (let [folder "/tmp/konserve-mixed-workload"
+            _ #?(:clj (delete-store folder) :cljs nil)
+            store (kons/add-hitchhiker-tree-handlers
+                   (<? #?(:clj (new-fs-store folder :config {:fsync false})
+                          :cljs (new-mem-store))))
+            _ #?(:clj (assert (empty? (<? (list-keys store)))
+                              "Start with no keys")
+                 :cljs nil)
+            ;_ (swap! recorded-ops conj ops)
+            [b-tree root set]
+            (<? (core/reduce< (fn [[t root set] [op x]]
+                                (go-try
+                                    (let [x-reduced (when x (mod x universe-size))]
+                                      (condp = op
+                                        :flush (let [flushed (<? (core/flush-tree t (kons/->KonserveBackend store)))
+                                                     t (:tree flushed)]
+                                                 [t (<? (:storage-addr t)) set])
+                                        :add [(<? (insert t x-reduced)) root (conj set x-reduced)]
+                                        :del [(<? (msg/delete t x-reduced)) root (disj set x-reduced)]))))
+                              [(<? (core/b-tree (core/->Config 3 3 2))) nil #{}]
+                              ops))]
+        (let [b-tree-order (map first (<? (iter-helper b-tree -1)))
+              res (= b-tree-order (seq (sort set)))]
+          (assert res (str "These are unequal: " (pr-str b-tree-order) " " (pr-str (seq (sort set)))))
+          #?(:clj (delete-store folder))
+          res))))
+
+;; TODO recheck when https://dev.clojure.org/jira/browse/TCHECK-128 is fixed
+;; and share clj mixed-op-seq test, remove ops.cljc then.
+#?(:cljs
+   (deftest manual-mixed-op-seq
+     (async done
+            (go-try
+                (loop [[ops & r] recorded-ops]
+                  (when ops
+                    (is (<? (ops-test ops 1000)))
+                    (recur r)))
+              (done)))))
+
 
 #?(:clj
    (defn mixed-op-seq
@@ -110,40 +156,37 @@
                                       [del-freq (gen/tuple (gen/return :del)
                                                            (gen/no-shrink gen/int))]])
                                     num-ops)]
-                   (let [folder "/tmp/konserve-mixed-workload"
-                         store (kons/add-hitchhiker-tree-handlers
-                                (<??  (new-fs-store folder :config {:fsync false})))
-                         _ (assert (empty? (<?? (list-keys store)))
-                                   "Start with no keys")
-                         [b-tree root set]
-                         (reduce (fn [[t root set] [op x]]
-                                   (let [x-reduced (when x (mod x universe-size))]
-                                     (condp = op
-                                       :flush (let [flushed (<?? (core/flush-tree t (kons/->KonserveBackend store)))
-                                                    t (:tree flushed)]
-                                                #_(when-not (:storage-addr t)
-                                                  (println "TTT" t flushed root op))
-                                                [t (<?? (:storage-addr t)) #_(when (:storage-addr t) (<?? (:storage-addr t))) set])
-                                       :add (do #_(println "add") [(<?? (insert t x-reduced)) root (conj set x-reduced)])
-                                       :del (do #_(println "del") [(<?? (msg/delete t x-reduced)) root (disj set x-reduced)]))))
-                                 [(<?? (core/b-tree (core/->Config 3 3 2))) nil #{}]
-                                 ops)]
-                     #_(println "Make it to the end of a test, tree has" (count (lookup-fwd-iter b-tree -1)) "keys left")
-                     (let [b-tree-order (lookup-fwd-iter b-tree -1)
-                           res (= b-tree-order (seq (sort set)))]
-                       #_(wcar {} (redis/drop-ref root))
-                       #_(assert (let [ks (wcar {} (car/keys "*"))]
-                                   (or (empty? ks)
-                                       (= ["refcount:expiry"] ks))) "End with no keys")
-                       (assert res (str "These are unequal: " (pr-str b-tree-order) " " (pr-str (seq (sort set)))))
-                       (delete-store folder)
-                       res)))))
+                   (<?? (ops-test ops universe-size)))))
 
 
 #?(:clj
    (defspec test-many-keys-bigger-trees
      100
      (mixed-op-seq 800 200 10 1000 1000)))
+
+
+
+
+(comment
+  ;; macroexpanded
+  (defn test-many-keys-bigger-trees
+  ([]
+   (let [options__29789__auto__ (clojure.test.check.clojure-test/process-options 100)]
+     (apply test-many-keys-bigger-trees
+            (:num-tests options__29789__auto__)
+            (apply concat options__29789__auto__))))
+  ([times & {:as quick-check-opts, :keys [seed max-size]}]
+   (go-try
+       (apply clojure.test.check/quick-check
+              times
+              (vary-meta (<? (mixed-op-seq 800 200 10 1000 1000))
+                         assoc :name (str (quote (mixed-op-seq 800 200 10 1000 1000))))
+              (apply concat quick-check-opts)))))
+
+  (<?? (test-many-keys-bigger-trees))
+  (macroexpand-1 '(defspec test-many-keys-bigger-trees
+                    100
+                    (mixed-op-seq 800 200 10 1000 1000))))
 
 #?(:cljs
    (defmethod cljs.test/report [:cljs.test/default :end-run-tests] [m]
