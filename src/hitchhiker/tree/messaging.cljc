@@ -247,13 +247,14 @@
             (recur (<? (core/right-successor (pop path)))))
           (async/close! iter-ch)))))
 
-(defn lookup-fwd-iter
-  "Compatibility helper to clojure sequences. Please prefer the channel
+#?(:clj
+   (defn lookup-fwd-iter
+     "Compatibility helper to clojure sequences. Please prefer the channel
   interface of forward-iterator, as this function blocks your thread, which
   disturbs async contexts and might lead to poor performance. It is mainly here
   to facilitate testing or for exploration on the REPL."
-  [tree key]
-  (let [path (<?? (core/lookup-path tree key))
-        iter-ch (async/chan)]
-    (forward-iterator iter-ch path key)
-    (core/chan-seq iter-ch)))
+     [tree key]
+     (let [path (<?? (core/lookup-path tree key))
+           iter-ch (async/chan)]
+       (forward-iterator iter-ch path key)
+       (core/chan-seq iter-ch))))

@@ -44,7 +44,7 @@
                                                                  :storage-addr nil) cs))))
                     (assoc node :storage-addr nil))]
         (let [id (uuid pnode)]
-          (<? (k/assoc-in store [id] pnode))
+          (<? (k/assoc-in store [id] node))
           (->KonserveAddr store (core/last-key node) id (synthesize-storage-addr id))))))
   (delete-addr [_ addr session]
     (swap! session update-in :deletes inc)))
@@ -61,7 +61,8 @@
       (<? (core/resolve
            (->KonserveAddr store last-key root-key (synthesize-storage-addr root-key)))))))
 
-(defn add-read-handlers [store]
+
+(defn add-hitchhiker-tree-handlers [store]
   (swap! (:read-handlers store) merge
          {'hitchhiker.konserve.KonserveAddr
           #(-> % map->KonserveAddr
@@ -76,9 +77,9 @@
           'hitchhiker.tree.core.IndexNode
           (fn [{:keys [children cfg op-buf]}]
             (core/->IndexNode (->> children
-                                   catvec)
+                                   vec)
                               (promise-chan)
-                              (catvec op-buf)
+                              (vec op-buf)
                               cfg))
           'hitchhiker.tree.messaging.InsertOp
           msg/map->InsertOp
@@ -86,7 +87,24 @@
           msg/map->DeleteOp
           'hitchhiker.tree.core.Config
           core/map->Config})
+  (swap! (:write-handlers store) merge
+         {'hitchhiker.konserve.KonserveAddr
+          (fn [addr]
+            (assoc addr
+                   :store nil
+                   :storage-addr nil))
+          'hitchhiker.tree.core.DataNode
+          (fn [node]
+            (assoc node :storage-addr nil))
+          'hitchhiker.tree.core.IndexNode
+          (fn [node]
+            (-> node
+                (assoc :storage-addr nil)
+                (update-in [:children]
+                           (fn [cs] (map #(assoc % :store nil :storage-addr nil) cs)))))}) 
   store)
+
+
 
 (comment
 

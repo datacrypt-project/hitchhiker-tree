@@ -4,13 +4,14 @@
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.8.0"]
+                 [org.clojure/clojurescript "1.8.51" :scope "provided"]
                  [org.clojure/core.memoize "0.5.8"]
                  [com.taoensso/carmine "2.12.2"]
                  [org.clojure/core.rrb-vector "0.0.11"]
                  [org.clojure/core.cache "0.6.5"]
 
                  [io.replikativ/incognito "0.2.2-SNAPSHOT"]
-                 [io.replikativ/konserve "0.4.8"]]
+                 [io.replikativ/konserve "0.4.9"]]
   :aliases {"bench" ["with-profile" "profiling" "run" "-m" "hitchhiker.bench"]}
   :jvm-opts ["-server" "-Xmx3700m" "-Xms3700m"]
   :profiles {:test
@@ -27,14 +28,7 @@
                                   [com.cemerick/piggieback "0.2.1"]
                                   [org.clojure/test.check "0.9.0"]]
                    :source-paths ["src" "dev"]
-                   ;; need to add dev source path here to get user.clj loaded
-                   ;; TODO check whether this still makes sense,
-                   ;; workaround for cider cljs REPL
-                   #_:figwheel #_{:nrepl-port 7888
-                              :nrepl-middleware ["cider.nrepl/cider-middleware"
-                                                 "cemerick.piggieback/wrap-cljs-repl"]}
-                   :plugins [[lein-figwheel "0.5.8"]
-                             #_[cider/cider-nrepl "0.15.0-SNAPSHOT"]]
+                   :plugins [[lein-figwheel "0.5.8"]]
                    :repl-options {; for nREPL dev you really need to limit output
                                   :init (set! *print-length* 50)
                                   :nrepl-middleware [cemerick.piggieback/wrap-cljs-repl]}}}
@@ -48,7 +42,20 @@
                 :compiler {:main hitchhiker.tree.core
                            :asset-path "js/out"
                            :output-to "resources/public/js/core.js"
-                           :output-dir "resources/public/js/out" }}]}
+                           :output-dir "resources/public/js/out" }}
+               ;; inspired by datascript project.clj
+               {:id "test"
+                :source-paths ["src" "test" "dev"]
+                :compiler {
+                           :main          hitchhiker-tree.konserve-test
+                           :output-to     "target/test.js"
+                           :output-dir    "target/none"
+                           :optimizations :none
+                           :source-map    true
+                           :recompile-dependents false
+                           :parallel-build true
+                           }}
+               ]}
 
   :plugins [[lein-figwheel "0.5.8"]
             [lein-cljsbuild "1.1.4" :exclusions [[org.clojure/clojure]]]])

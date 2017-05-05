@@ -699,20 +699,20 @@ throwable error."
         :stats session})))
   ([tree backend stats]
    (go-try
-     (if (dirty? tree)
-       (let [cleaned-children (if (data-node? tree)
-                                (:children tree)
-                                ;; TODO throw on nested errors
-                                (->> (flush-children (:children tree) backend stats)
-                                     <?
-                                     catvec))
-             cleaned-node (assoc tree :children cleaned-children)
-             new-addr (<? (write-node backend cleaned-node stats))]
-         (put! (:storage-addr tree) new-addr)
-         (when (not= new-addr (<? (:storage-addr tree)))
-           (delete-addr backend new-addr stats))
-         new-addr)
-       tree))))
+       (if (dirty? tree)
+         (let [cleaned-children (if (data-node? tree)
+                                  (:children tree)
+                                  ;; TODO throw on nested errors
+                                  (->> (flush-children (:children tree) backend stats)
+                                       <?
+                                       catvec))
+               cleaned-node (assoc tree :children cleaned-children)
+               new-addr (<? (write-node backend cleaned-node stats))]
+           (put! (:storage-addr tree) new-addr)
+           (when (not= new-addr (<? (:storage-addr tree)))
+             (delete-addr backend new-addr stats))
+           new-addr)
+         tree))))
 
 ;; The parts of the serialization system that seem like they're need hooks are:
 ;; - Must provide a function that takes a node, serializes it, and returns an addr
