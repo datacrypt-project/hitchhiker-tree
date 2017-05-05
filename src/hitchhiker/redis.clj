@@ -144,7 +144,7 @@
                               (cache/hit c redis-key)
                               (cache/miss c redis-key run))))
           val (cache/lookup cs redis-key)]
-      (if val @val @run)))
+      (if val (<?? val) @run)))
 
   (defn seed-cache!
     [redis-key val]
@@ -205,23 +205,23 @@
     node)
   (write-node [_ node session]
     (go-try
-        (swap! session update-in [:writes] inc)
-      (let [key (str (java.util.UUID/randomUUID))
-            addr (redis-addr (core/last-key node) key)]
+     (swap! session update-in [:writes] inc)
+     (let [key (str (java.util.UUID/randomUUID))
+           addr (redis-addr (core/last-key node) key)]
                                         ;(.submit service #(wcar {} (car/set key node)))
-        (when (some #(not (satisfies? msg/IOperation %)) (:op-buf node))
-          (println (str "Found a broken node, has " (count (:op-buf node)) " ops"))
-          (println (str "The node data is " node))
-          (println (str "and " (:op-buf node))))
-        (wcar {}
-              (car/set key node)
-              (when (core/index-node? node)
-                (add-refs key
-                          (for [child (:children node)
-                                :let [child-key (<? (:storage-addr child))]]
-                            child-key))))
-        (seed-cache! key (doto (promise-chan) (put! node)))
-        addr)))
+       (when (some #(not (satisfies? msg/IOperation %)) (:op-buf node))
+         (println (str "Found a broken node, has " (count (:op-buf node)) " ops"))
+         (println (str "The node data is " node))
+         (println (str "and " (:op-buf node))))
+       (wcar {}
+             (car/set key node)
+             (when (core/index-node? node)
+               (add-refs key
+                         (for [child (:children node)
+                               :let [child-key (<?? (:storage-addr child))]]
+                           child-key))))
+       (seed-cache! key (doto (promise-chan) (put! node)))
+       addr)))
   (delete-addr [_ addr session]
     (wcar {} (car/del addr))
     (swap! session update-in :deletes inc)))
