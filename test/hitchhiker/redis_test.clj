@@ -3,7 +3,7 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
             [hitchhiker.redis :as redis]
-            [hitchhiker.tree.core :as core]
+            [hitchhiker.tree.core :refer [<??] :as core]
             hitchhiker.tree.core-test
             [hitchhiker.tree.messaging :as msg]
             [taoensso.carmine :as car :refer [wcar]]))
@@ -35,15 +35,15 @@
                       (reduce (fn [[t root set] [op x]]
                                        (let [x-reduced (when x (mod x universe-size))]
                                          (condp = op
-                                           :flush (let [t (:tree (core/flush-tree t (redis/->RedisBackend)))]
+                                           :flush (let [t (:tree (<?? (core/flush-tree t (redis/->RedisBackend))))]
                                                     (when root
                                                       (wcar {} (redis/drop-ref root)))
                                                     #_(println "flush")
-                                                    [t @(:storage-addr t) set])
-                                           :add (do #_(println "add") [(insert t x-reduced) root (conj set x-reduced)])
-                                           :del (do #_(println "del") [(msg/delete t x-reduced) root (disj set x-reduced)]))))
-                                     [(core/b-tree (core/->Config 3 3 2)) nil #{}]
-                                     ops)]
+                                                    [t (<?? (:storage-addr t)) set])
+                                           :add (do #_(println "add") [(<?? (insert t x-reduced)) root (conj set x-reduced)])
+                                           :del (do #_(println "del") [(<?? (msg/delete t x-reduced)) root (disj set x-reduced)]))))
+                              [(<?? (core/b-tree (core/->Config 3 3 2))) nil #{}]
+                              ops)]
                   #_(println "Make it to the end of a test, tree has" (count (lookup-fwd-iter b-tree -1)) "keys left")
                   (let [b-tree-order (lookup-fwd-iter b-tree -1)
                         res (= b-tree-order (seq (sort set)))]
