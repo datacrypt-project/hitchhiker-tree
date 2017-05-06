@@ -35,8 +35,8 @@
   "Returns a sorted set"
   []
   {:structure (sorted-map)
-   :insert (go-try assoc)
-   :delete (go-try dissoc)
+   :insert (fn [m k v] (go-try (assoc m k v)))
+   :delete (fn [m k] (go-try (dissoc m k)))
    :flush (fn [set]
             {:tree set
              :stats (atom {})})})
