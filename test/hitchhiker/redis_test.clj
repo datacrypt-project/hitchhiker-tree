@@ -16,6 +16,7 @@
   [t v]
   (seq (map first (msg/lookup-fwd-iter t v))))
 
+
 (defn mixed-op-seq
   "This is like the basic mixed-op-seq tests, but it also mixes in flushes to redis
    and automatically deletes the old tree"
@@ -29,7 +30,8 @@
                                  num-ops)]
                 (assert (let [ks (wcar {} (car/keys "*"))]
                           (or (empty? ks)
-                              (= ["refcount:expiry"] ks)))
+                              (= ["refcount:expiry"] ks)
+                              (= #{"refcount:expiry" nil} (set ks))))
                         "Start with no keys")
                 (let [[b-tree root set]
                       (reduce (fn [[t root set] [op x]]
@@ -50,9 +52,12 @@
                     (wcar {} (redis/drop-ref root))
                     (assert (let [ks (wcar {} (car/keys "*"))]
                               (or (empty? ks)
-                                  (= ["refcount:expiry"] ks))) "End with no keys")
+                                  (= ["refcount:expiry"] ks)
+                                  (= #{"refcount:expiry" nil} (into #{} ks))))
+                            "End with no keys")
                     (assert res (str "These are unequal: " (pr-str b-tree-order) " " (pr-str (seq (sort set)))))
                     res))))
+
 
 (defspec test-many-keys-bigger-trees
   100
