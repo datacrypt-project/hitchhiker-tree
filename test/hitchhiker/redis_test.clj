@@ -31,7 +31,7 @@
                 (assert (let [ks (wcar {} (car/keys "*"))]
                           (or (empty? ks)
                               (= ["refcount:expiry"] ks)
-                              (= #{"refcount:expiry" nil} (set ks))))
+                              (= #{"refcount:expiry" nil} (into #{} ks))))
                         "Start with no keys")
                 (let [[b-tree root set]
                       (reduce (fn [[t root set] [op x]]

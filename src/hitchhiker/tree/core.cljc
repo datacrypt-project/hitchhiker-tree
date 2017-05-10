@@ -88,6 +88,7 @@ throwable error."
        (recur (<? (go-f res f)) r)
        res))))
 
+
 ;; core code
 
 (defrecord Config [index-b data-b op-buf-size])
@@ -198,7 +199,7 @@ throwable error."
   IResolve
   (index? [this] true)
   (dirty? [this] (not (async/poll! storage-addr)))
-  (resolve [this] (go this)) 
+  (resolve [this] (go this))
   (last-key [this]
     ;;TODO should optimize by caching to reduce IOps (can use monad)
     (last-key (peek children)))
@@ -699,24 +700,20 @@ throwable error."
         :stats session})))
   ([tree backend stats]
    (go
-    (try
-      (if (dirty? tree)
-        (let [cleaned-children (if (data-node? tree)
-                                 (:children tree)
-                                 ;; TODO throw on nested errors
-                                 (->> (flush-children (:children tree) backend stats)
-                                      <?
-                                      catvec))
-              cleaned-node (assoc tree :children cleaned-children)
-              new-addr (<? (write-node backend cleaned-node stats))]
-          (put! (:storage-addr tree) new-addr)
-          (when (not= new-addr (<? (:storage-addr tree)))
-            (delete-addr backend new-addr stats))
-          new-addr)
-        tree)
-      (catch Exception e
-        (pr e)
-        e)))))
+     (if (dirty? tree)
+       (let [cleaned-children (if (data-node? tree)
+                                (:children tree)
+                                ;; TODO throw on nested errors
+                                (->> (flush-children (:children tree) backend stats)
+                                     <?
+                                     catvec))
+             cleaned-node (assoc tree :children cleaned-children)
+             new-addr (<? (write-node backend cleaned-node stats))]
+         (put! (:storage-addr tree) new-addr)
+         (when (not= new-addr (<? (:storage-addr tree)))
+           (delete-addr backend new-addr stats))
+         new-addr)
+       tree))))
 
 ;; The parts of the serialization system that seem like they're need hooks are:
 ;; - Must provide a function that takes a node, serializes it, and returns an addr

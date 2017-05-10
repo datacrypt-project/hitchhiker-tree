@@ -22,5 +22,10 @@ nodeGlobalRequire('./target/none/cljs_deps.js');
 goog.require('hitchhiker.konserve_test');
 
 
-hitchhiker.konserve_test.test_all();
+hitchhiker.konserve_test.test_all(
+    function(res) {
+        if(res.fail + res.error > 0)
+            process.exit(1);
+        else
+            process.exit(0);});
 

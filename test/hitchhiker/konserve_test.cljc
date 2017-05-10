@@ -189,13 +189,10 @@
                     (mixed-op-seq 800 200 10 1000 1000))))
 
 #?(:cljs
-   (defmethod cljs.test/report [:cljs.test/default :end-run-tests] [m]
-     (if (cljs.test/successful? m)
-       (println "Success!")
-       (println "FAIL"))))
-
-#?(:cljs
-   (defn ^:export test-all []
-     (run-tests)
-     #_(go-try
-       (.log js/console "konserve tests:" (clj->js (<? ))))))
+   (defn ^:export test-all [cb]
+     (defmethod cljs.test/report [:cljs.test/default :end-run-tests] [m]
+       (cb (clj->js m))
+       (if (cljs.test/successful? m)
+         (println "Success!")
+         (println "FAIL")))
+     (run-tests)))
