@@ -9,5 +9,5 @@ env:
         - TEST_CMD='lein test'
         - TEST_CMD='lein bench output --data-structure fractal -- --data-structure b-tree -- --data-structure sorted-set'
         - TEST_CMD='lein bench output --delete-pattern forward -- --delete-pattern reverse -- --delete-pattern shuffle -- --delete-pattern zero'
-        - TEST_CMD='node test_node.js'
+        - TEST_CMD='lein cljsbuild once && node test_node.js'
 script: $TEST_CMD
