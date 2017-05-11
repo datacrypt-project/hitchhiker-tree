@@ -24,8 +24,8 @@
       (dotimes [i 10]
         (is (= (<?? (lookup-key root (inc i))) (inc i))))))
   (testing "Basic string key searches"
-    (let [data1 (data-node (->Config 3 5 2) (sorted-map "1" 1 "2" 2 "3" 3 "4" 4 "5" 5))
-          data2 (data-node (->Config 3 5 2) (sorted-map "6" 6 "7" 7 "8" 8 "9" 9 "10" 10))
+    (let [data1 (data-node (->Config 3 5 2) (sorted-map "1" 1 "10" 10 "2" 2 "3" 3 "4" 4))
+          data2 (data-node (->Config 3 5 2) (sorted-map "5" 5 "6" 6 "7" 7 "8" 8 "9" 9))
           root (->IndexNode [data1 data2] (promise-chan) [] (->Config 3 5 2))]
       (is (= (<?? (lookup-key root "-10")) nil) "not found key")
       (is (= (<?? (lookup-key root "100")) nil) "not found key")
