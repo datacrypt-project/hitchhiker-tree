@@ -148,6 +148,16 @@
 ;;broadcast nodes will need IDs so that they can combine during merges...
 ;;
 
+(defn general-max [e & r]
+  ;; fast track for number keys
+  (if (number? e)
+    (apply max e r)
+    (reduce (fn [old elem]
+              (if (pos? (core/compare old elem))
+                old
+                elem))
+            e r)))
+
 
 (defn apply-ops-in-path
   [path]
@@ -184,7 +194,7 @@
           left-sibs-min-last (when (seq left-sibs-on-path)
                                (->> left-sibs-on-path
                                     (map core/last-key)
-                                    (apply max)))
+                                    (apply general-max)))
           left-sib-filter (if left-sibs-min-last
                             (drop-while #(>= 0 (core/compare (affects-key %)
                                                              left-sibs-min-last)))

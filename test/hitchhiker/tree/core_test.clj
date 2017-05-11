@@ -6,7 +6,7 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
             [hitchhiker.tree.core :refer :all]
-            [clojure.core.async :as async]))
+            [clojure.core.async :refer [promise-chan] :as async]))
 
 (deftest reduce<-test
   (is (= 45 (<?? (reduce< (fn [res s]
@@ -16,24 +16,33 @@
 
 (deftest simple-read-only-behavior
   (testing "Basic searches"
-    (let [data1 (data-node (->Config 3 3 2) (sorted-map 1 1 2 2 3 3 4 4 5 5))
-          data2 (data-node (->Config 3 3 2) (sorted-map 6 6 7 7 8 8 9 9 10 10))
-          root (->IndexNode [data1 data2] (promise) [] (->Config 3 3 2))]
+    (let [data1 (data-node (->Config 3 5 2) (sorted-map 1 1 2 2 3 3 4 4 5 5))
+          data2 (data-node (->Config 3 5 2) (sorted-map 6 6 7 7 8 8 9 9 10 10))
+          root (->IndexNode [data1 data2] (promise-chan) [] (->Config 3 5 2))]
       (is (= (<?? (lookup-key root -10)) nil) "not found key")
       (is (= (<?? (lookup-key root 100)) nil) "not found key")
       (dotimes [i 10]
         (is (= (<?? (lookup-key root (inc i))) (inc i))))))
+  (testing "Basic string key searches"
+    (let [data1 (data-node (->Config 3 5 2) (sorted-map "1" 1 "2" 2 "3" 3 "4" 4 "5" 5))
+          data2 (data-node (->Config 3 5 2) (sorted-map "6" 6 "7" 7 "8" 8 "9" 9 "10" 10))
+          root (->IndexNode [data1 data2] (promise-chan) [] (->Config 3 5 2))]
+      (is (= (<?? (lookup-key root "-10")) nil) "not found key")
+      (is (= (<?? (lookup-key root "100")) nil) "not found key")
+      (dotimes [i 10]
+        (is (= (<?? (lookup-key root (str (inc i)))) (inc i))))))
   (testing "basic fwd iterator"
-    (let [data1 (data-node (->Config 3 3 2) (sorted-map 1 1 2 2 3 3 4 4 5 5))
-          data2 (data-node (->Config 3 3 2) (sorted-map 6 6 7 7 8 8 9 9 10 10))
-          root (->IndexNode [data1 data2] (promise) [] (->Config 3 3 2))]
+    (let [data1 (data-node (->Config 3 5 2) (sorted-map 1 1 2 2 3 3 4 4 5 5))
+          data2 (data-node (->Config 3 5 2) (sorted-map 6 6 7 7 8 8 9 9 10 10))
+          root (->IndexNode [data1 data2] (promise-chan) [] (->Config 3 5 2))]
       (is (= (map first (lookup-fwd-iter root 4)) (range 4 11)))
       (is (= (map first (lookup-fwd-iter root 0)) (range 1 11)))))
   (testing "index nodes identified as such"
-    (let [data (data-node (->Config 3 3 2) (sorted-map 1 1))
-          root (->IndexNode [data] (promise) [] (->Config 3 3 2))]
+    (let [data (data-node (->Config 3 5 2) (sorted-map 1 1))
+          root (->IndexNode [data] (promise-chan) [] (->Config 3 5 2))]
       (is (index? root))
       (is (not (index? data))))))
+
 
 (defn insert-helper
   [t k]
@@ -60,6 +69,14 @@
                       b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)]
                   (= (seq sorted-set-order) (seq (map first b-tree-order))))))
 
+(defspec test-insert-string
+  1000
+  (prop/for-all [v (gen/vector gen/string)]
+                (let [sorted-set-order (into (sorted-set) v)
+                      b-tree (reduce insert-helper (<?? (b-tree (->Config 3 3 2))) v)
+                      b-tree-order (lookup-fwd-iter b-tree "")]
+                  (= (seq sorted-set-order) (seq (map first b-tree-order))))))
+
 (defspec test-delete2
   1000
   (prop/for-all [the-set (gen/vector-distinct gen/int)
@@ -74,14 +91,14 @@
 
 (deftest insert-test
   (let [data1 (data-node (->Config 3 3 2) (sorted-map 1 "1" 2 "2" 3 "3" 4 "4"))
-        root (->IndexNode [data1] (promise) [] (->Config 3 3 2))]
+        root (->IndexNode [data1] (promise-chan) [] (->Config 3 3 2))]
     (is (= (map second (lookup-fwd-iter (<?? (insert root 3 "3")) -10)) ["1" "2" "3" "4"]))
     (are [x] (= (map second (lookup-fwd-iter (<?? (insert root x (str x))) -10)) (sort (map str (conj [1 2 3 4] x))))
          0
          2.5
          5))
   (let [data1 (data-node (->Config 3 3 2) (sorted-map 1 1 2 2 3 3 4 4 5 5))
-        root (->IndexNode [data1] (promise) [] (->Config 3 3 2))]
+        root (->IndexNode [data1] (promise-chan) [] (->Config 3 3 2))]
     (are [x y] (= (map first (lookup-fwd-iter (<?? (insert root x x)) y))
                   (drop-while
                     #(< % y)
@@ -185,10 +202,6 @@
                       b-tree-order (map first (lookup-fwd-iter b-tree Integer/MIN_VALUE))
                       flushed-tree (:tree (<?? (flush-tree b-tree (->TestingBackend))))
                       flushed-tree-order (map first (lookup-fwd-iter flushed-tree Integer/MIN_VALUE))]
-                  (when-not (= (seq sorted-set-order)
-                               (seq b-tree-order)
-                               (seq flushed-tree-order))
-                    (prn "FT" sorted-set-order b-tree-order flushed-tree-order))
                   (= (seq sorted-set-order)
                      (seq b-tree-order)
                      (seq flushed-tree-order)))))

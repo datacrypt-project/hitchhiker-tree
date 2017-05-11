@@ -30,6 +30,14 @@
                       b-tree-order (lookup-fwd-iter b-tree Integer/MIN_VALUE)]
                   (= (seq sorted-set-order) b-tree-order))))
 
+(defspec test-insert-string
+  1000
+  (prop/for-all [v (gen/vector gen/string)]
+                (let [sorted-set-order (into (sorted-set) v)
+                      b-tree (reduce insert (<?? (core/b-tree (core/->Config 3 3 2))) v)
+                      b-tree-order (lookup-fwd-iter b-tree "")]
+                  (= (seq sorted-set-order) b-tree-order))))
+
 (defspec test-delete2
   1000
   (prop/for-all [the-set (gen/vector-distinct gen/int)
@@ -159,3 +167,4 @@
 (defspec test-sparse-ops
   100
   (mixed-op-seq 0.7 100000 1000))
+
