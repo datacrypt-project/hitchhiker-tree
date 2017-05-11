@@ -11,7 +11,7 @@
   #?(:clj (:import java.io.Writer
                    [java.util Arrays Collections]))
   #?(:cljs (:require-macros [cljs.core.async.macros :refer [go]]
-                            [hitchhiker.tree.core :refer [go-try <?]])))
+                            [hitchhiker.tree.core :refer [go-try <? <?resolve]])))
 
 
 ;; cljs macro environment
