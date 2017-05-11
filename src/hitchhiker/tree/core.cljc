@@ -52,11 +52,13 @@
      {:style/indent 1}
      [ & body]
      `(if-cljs (cljs.core.async.macros/go
-                 (try ~@body
+                 ~@body
+                 #_(try ~@body
                       (catch js/Error e#
                         e#)))
                (go
-                 (try
+                 ~@body
+                 #_(try
                    ~@body
                    (catch Exception e#
                      e#))))))
@@ -66,8 +68,8 @@
      "Same as core.async <! but throws an exception if the channel returns a
 throwable error."
      [ch]
-     `(if-cljs (throw-if-exception (cljs.core.async/<! ~ch))
-               (throw-if-exception (<! ~ch)))))
+     `(if-cljs (cljs.core.async/<! ~ch) #_(throw-if-exception (cljs.core.async/<! ~ch))
+               (<! ~ch) #_(throw-if-exception (<! ~ch)))))
 
 
 #?(:clj
@@ -104,6 +106,8 @@ throwable error."
   (dirty? [_] "Returns true if this should be flushed")
   ;;TODO resolve should be instrumented
   (resolve [_] "Returns the INode version of this node in a go-block; could trigger IO"))
+
+
 
 (defn tree-node?
   [node]
@@ -354,6 +358,15 @@ throwable error."
   (instance? DataNode node))
 
 #?(:clj
+   (defmacro <?resolve
+     "HACK Attempt faster inlined resolve to avoid unnecessary channel ops."
+     [e]
+     `(if (or (data-node? ~e)
+              (index-node? ~e))
+        ~e
+        (<? (resolve ~e)))))
+
+#?(:clj
    (nippy/extend-freeze DataNode :b-tree/data-node
                         [{:keys [cfg children]} data-output]
                         (nippy/freeze-to-out! data-output cfg)
@@ -424,27 +437,19 @@ throwable error."
                   (< (inc index) (count (:children parent)))))]
       (let [next-index (-> common-parent-path peek inc)
             parent (-> common-parent-path pop peek)
-            new-sibling (<? (resolve (nth (:children parent) next-index)))
+            new-sibling (<?resolve (nth (:children parent) next-index))
             ;; We must get back down to the data node
+            ;; iterate cannot do blocking operations with core.async, so we use a loop
             sibling-lineage (loop [res [new-sibling]
                                     s new-sibling]
                               (let [c (-> s :children first)
                                     c (if (tree-node? c)
-                                        (<? (resolve c))
+                                        (<?resolve c)
                                         c)]
                                 (if (or (index-node? c)
                                         (data-node? c))
                                   (recur (conj res c) c)
                                   res)))
-            ;; iterate cannot do blocking operations with core.async
-            #_(into []
-                  (take-while #(or (index-node? %)
-                                   (data-node? %)))
-                  (iterate #(let [c (-> % :children first)]
-                              (if (tree-node? c)
-                                (<?? S (resolve c S))
-                                c))
-                           new-sibling))
             path-suffix (-> (interleave sibling-lineage
                                         (repeat 0))
                             (butlast)) ; butlast ensures we end w/ node
@@ -483,10 +488,10 @@ throwable error."
           (let [index (lookup cur key)
                 child (if (data-node? cur)
                         nil #_(nth-of-set (:children cur) index)
-                        (<? (-> (:children cur)
-                                  ;;TODO what are the semantics for exceeding on the right? currently it's trunc to the last element
-                                  (nth index (peek (:children cur)))
-                                  (resolve))))
+                        (-> (:children cur)
+                            ;;TODO what are the semantics for exceeding on the right? currently it's trunc to the last element
+                            (nth index (peek (:children cur)))
+                            (<?resolve)))
                 path' (conj path index child)]
             (recur path' child)))
         nil))))
@@ -498,9 +503,9 @@ throwable error."
   ([tree key not-found]
    (go-try
      (->
-      (<? (-> (<? (lookup-path tree key))
-              (peek)
-              (resolve)))
+      (-> (<? (lookup-path tree key))
+          (peek)
+          (<?resolve))
       :children
       (get key not-found)))))
 
@@ -584,8 +589,8 @@ throwable error."
                       :else (inc index))
                     node-first? (> bigger-sibling-idx index) ; if true, `node` is left
                     merged (if node-first?
-                             (merge-node node (<? (resolve (nth children bigger-sibling-idx))))
-                             (merge-node (<? (resolve (nth children bigger-sibling-idx))) node))
+                             (merge-node node (<?resolve (nth children bigger-sibling-idx)))
+                             (merge-node (<?resolve (nth children bigger-sibling-idx)) node))
                     old-left-children (subvec children 0 (min index bigger-sibling-idx))
                     old-right-children (subvec children (inc (max index bigger-sibling-idx)))]
                 (if (overflow? merged)
@@ -696,7 +701,7 @@ throwable error."
      (let [session (new-session backend)
            flushed (<? (flush-tree tree backend session))
            root (anchor-root backend flushed)]
-       {:tree (<? (resolve root)) ; root should never be unresolved for API
+       {:tree (<?resolve root) ; root should never be unresolved for API
         :stats session})))
   ([tree backend stats]
    (go

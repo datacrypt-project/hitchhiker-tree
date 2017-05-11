@@ -8,7 +8,7 @@
             #?(:clj [hitchhiker.tree.core :refer [go-try <? <??] :as core]
                :cljs [hitchhiker.tree.core :as core]))
   #?(:clj (:import java.io.Writer))
-  #?(:cljs (:require-macros [hitchhiker.tree.core :refer [go-try <?]])))
+  #?(:cljs (:require-macros [hitchhiker.tree.core :refer [go-try <? <?resolve]])))
 
 ;; An operation is an object with a few functions
 ;; 1. It has a function that it applies to the tree to apply its effect
@@ -81,14 +81,10 @@
               [op & r] @deferred-ops]
          (if op
            (recur (<? (apply-op-to-tree op tree)) r)
-           tree))
-       #_(reduce (fn [tree op]
-                   (apply-op-to-tree op tree))
-                 msg-buffers-propagated
-                 @deferred-ops))))
+           tree)))))
   ([tree msgs deferred-ops]
    (go-try
-       (let [tree (<? (core/resolve tree))]
+    (let [tree (core/<?resolve tree)]
        (cond
          (core/data-node? tree) ; need to return ops to apply to the tree proper...
          (do (swap! deferred-ops into msgs)
@@ -126,11 +122,11 @@
                      new-child
                      (cond
                        (and on-the-last-child? (seq extra-msgs))
-                       (<? (enqueue (<? (core/resolve child))
+                       (<? (enqueue (core/<?resolve child)
                                     (catvec took-msgs extra-msgs)
                                     deferred-ops))
                        (seq took-msgs) ; save a write
-                       (<? (enqueue (<? (core/resolve child))
+                       (<? (enqueue (core/<?resolve child)
                                     (catvec took-msgs)
                                     deferred-ops))
                        :else
