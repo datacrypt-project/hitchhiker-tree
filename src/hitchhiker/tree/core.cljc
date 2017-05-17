@@ -52,13 +52,11 @@
      {:style/indent 1}
      [ & body]
      `(if-cljs (cljs.core.async.macros/go
-                 ~@body
-                 #_(try ~@body
+                 (try ~@body
                       (catch js/Error e#
                         e#)))
                (go
-                 ~@body
-                 #_(try
+                 (try
                    ~@body
                    (catch Exception e#
                      e#))))))
@@ -68,8 +66,8 @@
      "Same as core.async <! but throws an exception if the channel returns a
 throwable error."
      [ch]
-     `(if-cljs (cljs.core.async/<! ~ch) #_(throw-if-exception (cljs.core.async/<! ~ch))
-               (<! ~ch) #_(throw-if-exception (<! ~ch)))))
+     `(if-cljs (throw-if-exception (cljs.core.async/<! ~ch))
+               (throw-if-exception (<! ~ch)))))
 
 
 #?(:clj
