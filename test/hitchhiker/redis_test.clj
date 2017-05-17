@@ -3,7 +3,7 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
             [hitchhiker.redis :as redis]
-            [hitchhiker.tree.core :as core]
+            [hitchhiker.tree.core :refer [<??] :as core]
             hitchhiker.tree.core-test
             [hitchhiker.tree.messaging :as msg]
             [taoensso.carmine :as car :refer [wcar]]))
@@ -16,6 +16,7 @@
   [t v]
   (seq (map first (msg/lookup-fwd-iter t v))))
 
+
 (defn mixed-op-seq
   "This is like the basic mixed-op-seq tests, but it also mixes in flushes to redis
    and automatically deletes the old tree"
@@ -26,33 +27,37 @@
                                     [flush-freq (gen/return [:flush])]
                                     [del-freq (gen/tuple (gen/return :del)
                                                          (gen/no-shrink gen/int))]])
-                                 0)]
+                                 num-ops)]
                 (assert (let [ks (wcar {} (car/keys "*"))]
                           (or (empty? ks)
-                              (= ["refcount:expiry"] ks)))
+                              (= ["refcount:expiry"] ks)
+                              (= #{"refcount:expiry" nil} (into #{} ks))))
                         "Start with no keys")
                 (let [[b-tree root set]
                       (reduce (fn [[t root set] [op x]]
                                        (let [x-reduced (when x (mod x universe-size))]
                                          (condp = op
-                                           :flush (let [t (:tree (core/flush-tree t (redis/->RedisBackend)))]
+                                           :flush (let [t (:tree (<?? (core/flush-tree t (redis/->RedisBackend))))]
                                                     (when root
                                                       (wcar {} (redis/drop-ref root)))
                                                     #_(println "flush")
-                                                    [t @(:storage-addr t) set])
-                                           :add (do #_(println "add") [(insert t x-reduced) root (conj set x-reduced)])
-                                           :del (do #_(println "del") [(msg/delete t x-reduced) root (disj set x-reduced)]))))
-                                     [(core/b-tree (core/->Config 3 3 2)) nil #{}]
-                                     ops)]
+                                                    [t (<?? (:storage-addr t)) set])
+                                           :add (do #_(println "add") [(<?? (insert t x-reduced)) root (conj set x-reduced)])
+                                           :del (do #_(println "del") [(<?? (msg/delete t x-reduced)) root (disj set x-reduced)]))))
+                              [(<?? (core/b-tree (core/->Config 3 3 2))) nil #{}]
+                              ops)]
                   #_(println "Make it to the end of a test, tree has" (count (lookup-fwd-iter b-tree -1)) "keys left")
                   (let [b-tree-order (lookup-fwd-iter b-tree -1)
                         res (= b-tree-order (seq (sort set)))]
                     (wcar {} (redis/drop-ref root))
                     (assert (let [ks (wcar {} (car/keys "*"))]
                               (or (empty? ks)
-                                  (= ["refcount:expiry"] ks))) "End with no keys")
+                                  (= ["refcount:expiry"] ks)
+                                  (= #{"refcount:expiry" nil} (into #{} ks))))
+                            "End with no keys")
                     (assert res (str "These are unequal: " (pr-str b-tree-order) " " (pr-str (seq (sort set)))))
                     res))))
+
 
 (defspec test-many-keys-bigger-trees
   100

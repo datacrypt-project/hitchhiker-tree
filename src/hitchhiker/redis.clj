@@ -1,10 +1,12 @@
 (ns hitchhiker.redis
   (:require [clojure.core.cache :as cache]
             [clojure.string :as str]
-            [hitchhiker.tree.core :as core]
+            [hitchhiker.tree.core :refer [go-try <? <??] :as core]
+            [clojure.core.async :refer [promise-chan put!]]
             [hitchhiker.tree.messaging :as msg]
             [taoensso.carmine :as car :refer [wcar]]
-            [taoensso.nippy :as nippy]))
+            [taoensso.nippy :as nippy]
+            [clojure.core.async :as async]))
 
 ;;; Description of refcounting system in redis
 ;;;
@@ -142,7 +144,7 @@
                               (cache/hit c redis-key)
                               (cache/miss c redis-key run))))
           val (cache/lookup cs redis-key)]
-      (if val @val @run)))
+      (if val (<?? val) @run)))
 
   (defn seed-cache!
     [redis-key val]
@@ -162,15 +164,16 @@
 (defn synthesize-storage-addr
   "Given a key, returns a promise containing that key for use as a storage-addr"
   [key]
-  (doto (promise)
-    (deliver key)))
+  (doto (promise-chan)
+    (put! key)))
 
 (defrecord RedisAddr [last-key redis-key storage-addr]
   core/IResolve
   (dirty? [_] false)
   (last-key [_] last-key)
-  (resolve [_] (-> (totally-fetch redis-key)
-                 (assoc :storage-addr (synthesize-storage-addr redis-key)))))
+  (resolve [_]
+    (go-try (-> (totally-fetch redis-key)
+                (assoc :storage-addr (synthesize-storage-addr redis-key))))))
 
 (comment
   (:cfg (wcar {} (car/get "b89bb965-e584-45a2-9232-5b76bf47a21c")))
@@ -201,36 +204,38 @@
     (wcar {} (add-to-expiry redis-key (+ 5000 (System/currentTimeMillis))))
     node)
   (write-node [_ node session]
-    (swap! session update-in [:writes] inc)
-    (let [key (str (java.util.UUID/randomUUID))
-          addr (redis-addr (core/last-key node) key)]
-      ;(.submit service #(wcar {} (car/set key node)))
-      (when (some #(not (satisfies? msg/IOperation %)) (:op-buf node))
-        (println (str "Found a broken node, has " (count (:op-buf node)) " ops"))
-        (println (str "The node data is " node))
-        (println (str "and " (:op-buf node))))
-      (wcar {}
-            (car/set key node)
-            (when (core/index-node? node)
-              (add-refs key
-                        (for [child (:children node)
-                              :let [child-key @(:storage-addr child)]]
-                          child-key))))
-      (seed-cache! key (doto (promise) (deliver node)))
-      addr))
+    (go-try
+     (swap! session update-in [:writes] inc)
+     (let [key (str (java.util.UUID/randomUUID))
+           addr (redis-addr (core/last-key node) key)]
+                                        ;(.submit service #(wcar {} (car/set key node)))
+       (when (some #(not (satisfies? msg/IOperation %)) (:op-buf node))
+         (println (str "Found a broken node, has " (count (:op-buf node)) " ops"))
+         (println (str "The node data is " node))
+         (println (str "and " (:op-buf node))))
+       (wcar {}
+             (car/set key node)
+             (when (core/index-node? node)
+               (add-refs key
+                         (for [child (:children node)
+                               :let [child-key (<?? (:storage-addr child))]]
+                           child-key))))
+       (seed-cache! key (doto (promise-chan) (put! node)))
+       addr)))
   (delete-addr [_ addr session]
     (wcar {} (car/del addr))
     (swap! session update-in :deletes inc)))
 
 (defn get-root-key
   [tree]
-  (-> tree :storage-addr (deref 10 nil)))
+  (-> tree :storage-addr (async/poll!)))
+
 
 (defn create-tree-from-root-key
   [root-key]
   (let [last-key (core/last-key (wcar {} (car/get root-key)))] ; need last key to bootstrap
-    (core/resolve
-      (->RedisAddr last-key root-key (synthesize-storage-addr root-key)))))
+    (<?? (core/resolve
+          (->RedisAddr last-key root-key (synthesize-storage-addr root-key))))))
 
 (comment
   (wcar {} (car/ping) (car/set "foo" "bar") (car/get "foo"))
@@ -281,8 +286,8 @@
 
   (wcar {} (car/flushall))
   (count (wcar {} (car/keys "*")))
-  (count (msg/lookup-fwd-iter (create-tree-from-root-key @(:storage-addr (:tree my-tree))) -1))
-  (count (msg/lookup-fwd-iter (create-tree-from-root-key @(:storage-addr (:tree my-tree-updated))) -1))
+  (count (msg/lookup-fwd-iter (create-tree-from-root-key (<? (:storage-addr (:tree my-tree)))) -1))
+  (count (msg/lookup-fwd-iter (create-tree-from-root-key (<? (:storage-addr (:tree my-tree-updated)))) -1))
   (def my-tree (core/flush-tree
                  (time (reduce msg/insert
                                (core/b-tree (core/->Config 17 300 (- 300 17)))

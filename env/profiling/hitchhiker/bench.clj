@@ -4,7 +4,7 @@
             [clojure.tools.cli :refer [parse-opts]]
             [excel-templates.build :as excel]
             [hitchhiker.redis :as redis]
-            [hitchhiker.tree.core :as core]
+            [hitchhiker.tree.core :refer [<?? <? go-try] :as core]
             [hitchhiker.tree.messaging :as msg])
   (:import [java.io File FileWriter]))
 
@@ -17,26 +17,26 @@
 (defn core-b-tree
   "Returns a b-tree with core insert"
   [b backend]
-  {:structure (core/b-tree (core/->Config b b 0))
+  {:structure (<?? (core/b-tree (core/->Config b b 0)))
    :insert core/insert
    :delete core/delete
-   :flush (fn [x] (core/flush-tree x backend))})
+   :flush (fn [x] (<?? (core/flush-tree x backend)))})
 
 (defn msg-b-tree
   "Returns a b-tree with msg insert"
   [b backend]
   (let [sqrt-b (long (Math/sqrt b))]
-    {:structure (core/b-tree(core/->Config sqrt-b b (- b sqrt-b)))
+    {:structure (<?? (core/b-tree(core/->Config sqrt-b b (- b sqrt-b))))
      :insert msg/insert
      :delete msg/delete
-     :flush (fn [x] (core/flush-tree x backend))}))
+     :flush (fn [x] (<?? (core/flush-tree x backend)))}))
 
 (defn sorted-set-repr
   "Returns a sorted set"
   []
   {:structure (sorted-map)
-   :insert assoc
-   :delete dissoc
+   :insert (fn [m k v] (go-try (assoc m k v)))
+   :delete (fn [m k] (go-try (dissoc m k)))
    :flush (fn [set]
             {:tree set
              :stats (atom {})})})
@@ -64,60 +64,61 @@
   [n dataset flush-freq datastruct out delete-xform]
   (let [{:keys [structure delete insert flush]} datastruct
         dataset (take n (:data dataset))]
-    (loop [[x & data] dataset
-           t 0
-           tree structure
-           last-flush nil
-           i 0
-           inserting? true
-           outputs []]
-      (let [i' (inc i)
-            {flushed-tree :tree
-             stats :stats} (when (zero? (mod i' flush-freq))
-                             (flush tree))
-            before (System/nanoTime)
-            tree' (if inserting?
-                    (insert (or flushed-tree tree) x x)
-                    (delete (or flushed-tree tree) x))
-            after (System/nanoTime)
-            log-inserts (zero? (mod i' (quot n 100)))
-            updated-outputs (atom outputs)]
-        (when log-inserts ;; 1000 pieces
-          (binding [*out* (:speed out)]
-            (let [ks (sort (keys last-flush))
-                  avg-ns (float (/ t (quot n 100)))]
-              (when (zero? i)
-                (println (str "elements,op,insert_took_avg_ns,"
-                              (str/join "," ks))))
-              (println (str i' "," (if inserting? "insert" "delete") "," avg-ns
-                            "," (str/join "," (map #(get last-flush %) ks))))
-              (swap! updated-outputs conj (-> (into {} last-flush)
-                                              (assoc :ins-avg-ns avg-ns
-                                                     (if inserting?
-                                                       :insert
-                                                       :delete) true
-                                                     :n i'))))))
-        (cond
-          (seq data)
-          (recur data
-                 (if log-inserts
-                   0
-                   (+ t (- after before)))
-                 tree'
-                 (if stats (merge-with + last-flush @stats) last-flush)
-                 i'
-                 inserting?
-                 @updated-outputs)
-          inserting?
-          (recur (delete-xform dataset)
-                 0
-                 tree'
-                 nil
-                 i'
-                 false
-                 @updated-outputs)
-          :else
-          @updated-outputs)))))
+    (<?? (go-try
+          (loop [[x & data] dataset
+                 t 0
+                 tree structure
+                 last-flush nil
+                 i 0
+                 inserting? true
+                 outputs []]
+            (let [i' (inc i)
+                  {flushed-tree :tree
+                   stats :stats} (when (zero? (mod i' flush-freq))
+                                   (flush tree))
+                  before (System/nanoTime)
+                  tree' (if inserting?
+                          (<? (insert (or flushed-tree tree) x x))
+                          (<? (delete (or flushed-tree tree) x)))
+                  after (System/nanoTime)
+                  log-inserts (zero? (mod i' (quot n 100)))
+                  updated-outputs (atom outputs)]
+              (when log-inserts ;; 1000 pieces
+                (binding [*out* (:speed out)]
+                  (let [ks (sort (keys last-flush))
+                        avg-ns (float (/ t (quot n 100)))]
+                    (when (zero? i)
+                      (println (str "elements,op,insert_took_avg_ns,"
+                                    (str/join "," ks))))
+                    (println (str i' "," (if inserting? "insert" "delete") "," avg-ns
+                                  "," (str/join "," (map #(get last-flush %) ks))))
+                    (swap! updated-outputs conj (-> (into {} last-flush)
+                                                    (assoc :ins-avg-ns avg-ns
+                                                           (if inserting?
+                                                             :insert
+                                                             :delete) true
+                                                           :n i'))))))
+              (cond
+                (seq data)
+                (recur data
+                       (if log-inserts
+                         0
+                         (+ t (- after before)))
+                       tree'
+                       (if stats (merge-with + last-flush @stats) last-flush)
+                       i'
+                       inserting?
+                       @updated-outputs)
+                inserting?
+                (recur (delete-xform dataset)
+                       0
+                       tree'
+                       nil
+                       i'
+                       false
+                       @updated-outputs)
+                :else
+                @updated-outputs)))))))
 
 (def options
   [["-n" "--num-operations NUM_OPS" "The number of elements that will be applied to the data structure"
