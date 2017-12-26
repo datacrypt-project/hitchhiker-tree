@@ -51,7 +51,10 @@
 
 (defn get-root-key
   [tree]
-  (-> tree :storage-addr (async/poll!)))
+  ;; TODO find out why this is inconsistent
+  (or
+   (-> tree :storage-addr (async/poll!) :konserve-key)
+   (-> tree :storage-addr (async/poll!))))
 
 (defn create-tree-from-root-key
   [store root-key]

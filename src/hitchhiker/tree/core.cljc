@@ -162,21 +162,47 @@ throwable error."
 ;; (based on proven data), and then send generated loads to check we stay within
 ;; our targets.
 
+;; TODO add full edn support including records
+(defn order-on-edn-types [t]
+  (cond (map? t) 0
+        (vector? t) 1
+        (set? t) 2
+        (number? t) 3
+        (string? t) 4
+        (symbol? t) 5
+        (keyword? t) 6))
+
 (extend-protocol IKeyCompare
   ;; By default, we use the default comparator
   #?@(:clj
       [Object
-       (compare [key1 key2] (clojure.core/compare key1 key2))
+       (compare [key1 key2]
+                (if (or (= (type key1) (type key2))
+                        (= (order-on-edn-types key1)
+                           (order-on-edn-types key2)))
+                  (try
+                    (clojure.core/compare key1 key2)
+                    (catch ClassCastException e
+                      (- (order-on-edn-types key2)
+                         (order-on-edn-types key1))))))
        Double
        (compare [^Double key1 key2]
                 (if (instance? Double key2)
                   (.compareTo key1 key2)
-                  (clojure.core/compare key1 key2)))
+                  (try
+                    (clojure.core/compare key1 key2)
+                    (catch ClassCastException e
+                      (- (order-on-edn-types key2)
+                         (order-on-edn-types key1))))))
        Long
        (compare [^Long key1 key2]
                 (if (instance? Long key2)
-                  (.compareTo key1 key2))
-                (clojure.core/compare key1 key2))]
+                  (.compareTo key1 key2)
+                  (try
+                    (clojure.core/compare key1 key2)
+                    (catch ClassCastException e
+                      (- (order-on-edn-types key2)
+                         (order-on-edn-types key1))))))]
      :cljs
       [number
        (compare [key1 key2] (cljs.core/compare key1 key2))
@@ -512,6 +538,7 @@ throwable error."
    (defn chan-seq [ch]
      (when-some [v (<?? ch)]
        (cons v (lazy-seq (chan-seq ch))))))
+
 
 
 #?(:clj
