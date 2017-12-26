@@ -37,7 +37,7 @@
   to maintain a full stack trace when jumping between multiple contexts."
   [x]
   (if (instance? #?(:clj Exception :cljs js/Error) x)
-    (throw (ex-info (or #?(:clj (.getMessage x)) (str x))
+    (throw (ex-info (or #?(:clj (.getMessage ^Exception x)) (str x))
                     (or (ex-data x) {})
                     x))
     x))
@@ -321,7 +321,7 @@ throwable error."
      [node]
      (let [out ^Writer *out*]
        (.write out "IndexNode")
-       (.write out (node-status-bits node))
+       (.write out ^String (node-status-bits node))
        (pp/pprint-logical-block
         :prefix "{" :suffix "}"
         (pp/pprint-logical-block
