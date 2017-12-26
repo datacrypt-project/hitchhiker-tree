@@ -540,7 +540,6 @@ throwable error."
        (cons v (lazy-seq (chan-seq ch))))))
 
 
-
 #?(:clj
    (defn lookup-fwd-iter
      "Compatibility helper to clojure sequences. Please prefer the channel
