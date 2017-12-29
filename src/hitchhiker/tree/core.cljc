@@ -11,7 +11,8 @@
   #?(:clj (:import java.io.Writer
                    [java.util Arrays Collections]))
   #?(:cljs (:require-macros [cljs.core.async.macros :refer [go]]
-                            [hitchhiker.tree.core :refer [go-try <? <?resolve]])))
+                            [hitchhiker.tree.core :refer [go-try <? <?resolve]]))
+  (:import [clojure.lang.PersistentTreeMap$BlackVal]))
 
 
 ;; cljs macro environment
@@ -241,7 +242,7 @@ throwable error."
           median (nth (index-node-keys children) (dec b))
           [left-buf right-buf] (split-with #(not (pos? (compare (:key %) median)))
                                            ;;TODO this should use msg/affects-key
-                                           (sort-by :key op-buf))]
+                                           (sort-by :key compare op-buf))]
       (->Split (->IndexNode (subvec children 0 b)
                             (promise-chan)
                             (vec left-buf)
@@ -467,9 +468,18 @@ throwable error."
             sibling-lineage (loop [res [new-sibling]
                                     s new-sibling]
                               (let [c (-> s :children first)
-                                    c (if (tree-node? c)
+                                    ;_ (prn (type c) (= (class c) clojure.lang.PersistentTreeMap$BlackVal))
+                                    c (cond
+                                        ;; fast path
+                                        (or (index-node? c)
+                                            (data-node? c)
+                                            (= (class c) clojure.lang.PersistentTreeMap$BlackVal))
+                                        c
+
+                                        (tree-node? c)
                                         (<?resolve c)
-                                        c)]
+
+                                        :else c)]
                                 (if (or (index-node? c)
                                         (data-node? c))
                                   (recur (conj res c) c)

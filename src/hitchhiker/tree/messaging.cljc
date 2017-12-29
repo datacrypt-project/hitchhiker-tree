@@ -102,6 +102,7 @@
              (loop [[child & children] (:children tree)
                     rebuilt-children []
                     msgs (vec (sort-by affects-key ;must be a stable sort
+                                       core/compare
                                        (concat (:op-buf tree) msgs)))]
                (let [took-msgs (into []
                                      (take-while #(>= 0 (core/compare
@@ -168,7 +169,7 @@
                                   (map :op-buf)))
                    (rseq) ; highest node should be last in seq
                    (apply catvec)
-                   (sort-by affects-key)) ;must be a stable sort
+                   (sort-by affects-key core/compare)) ;must be a stable sort
           this-node-index (-> path pop peek)
           parent (-> path pop pop peek)
           is-first? (zero? this-node-index)
