@@ -25,11 +25,15 @@
 
 
 (defn iter-helper [tree key]
-  (go-try
-      (let [iter-ch (async/chan)
-            path (<? (core/lookup-path tree key))]
-        (msg/forward-iterator iter-ch path key)
-        (<? (async/into [] iter-ch)))))
+  (case core/*async-backend*
+    :none
+    (msg/forward-iterator (core/lookup-path tree key))
+    :core.async
+    (go-try
+     (let [iter-ch (async/chan)
+           path (<? (core/lookup-path tree key))]
+       (msg/forward-iterator iter-ch path key)
+       (<? (async/into [] iter-ch))))))
 
 
 (deftest simple-konserve-test
@@ -37,7 +41,7 @@
     #?(:cljs
        (async done
         (go-try
-         (let [store (<? (new-mem-store))
+         (let [store (async/<!! (new-mem-store)) ;; always use core.async here!
                backend (kons/->KonserveBackend store)
                init-tree (<? (core/reduce< (fn [t i] (msg/insert t i i))
                                            (<? (core/b-tree (core/->Config 1 3 (- 3 1))))
@@ -61,7 +65,7 @@
     #?(:clj
        (let [folder "/tmp/async-hitchhiker-tree-test"
              _ (delete-store folder)
-             store (kons/add-hitchhiker-tree-handlers (<?? (new-fs-store folder :config {:fsync false})))
+             store (kons/add-hitchhiker-tree-handlers (async/<!! (new-fs-store folder :config {:fsync false})))
              backend (kons/->KonserveBackend store)
              flushed (<?? (core/flush-tree
                            (time (reduce (fn [t i]
@@ -108,9 +112,9 @@
       (let [folder "/tmp/konserve-mixed-workload"
             _ #?(:clj (delete-store folder) :cljs nil)
             store (kons/add-hitchhiker-tree-handlers
-                   (<? #?(:clj (new-fs-store folder :config {:fsync false})
-                          :cljs (new-mem-store))))
-            _ #?(:clj (assert (empty? (<? (list-keys store)))
+                   #?(:clj (async/<!! (new-fs-store folder :config {:fsync false}))
+                      :cljs (async/<! (new-mem-store))))
+            _ #?(:clj (assert (empty? (async/<!! (list-keys store)))
                               "Start with no keys")
                  :cljs nil)
             ;_ (swap! recorded-ops conj ops)

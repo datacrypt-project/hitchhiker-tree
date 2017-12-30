@@ -7,7 +7,7 @@
             [konserve.memory :refer [new-mem-store]]
             [hasch.core :refer [uuid]]
             [clojure.set :as set]
-            #?(:clj [hitchhiker.tree.core :refer [go-try <?] :as core]
+            #?(:clj [hitchhiker.tree.core :refer [go-try <? <??] :as core]
                :cljs [hitchhiker.tree.core :as core])
             [hitchhiker.tree.messaging :as msg])
   #?(:cljs (:require-macros [hitchhiker.tree.core :refer [go-try <?]])))
@@ -25,8 +25,11 @@
   (last-key [_] last-key)
   (resolve [_]
     (go-try
-      (-> (<? (k/get-in store [konserve-key]))
-          (assoc :storage-addr (synthesize-storage-addr konserve-key))))))
+     (let [ch (k/get-in store [konserve-key])]
+       (-> (case core/*async-backend*
+             :none (async/<!! ch)
+             :core.async (<? ch))
+           (assoc :storage-addr (synthesize-storage-addr konserve-key)))))))
 
 
 (defrecord KonserveBackend [store]
@@ -43,45 +46,51 @@
                         (update :children (fn [cs] (mapv #(assoc % :store nil
                                                                  :storage-addr nil) cs))))
                     (assoc node :storage-addr nil))]
-        (let [id (uuid pnode)]
-          (<? (k/assoc-in store [id] node))
+        (let [id (uuid pnode)
+              ch (k/assoc-in store [id] node)]
+          (case core/*async-backend*
+            :none (async/<!! ch)
+            :core.async (<? ch))
           (->KonserveAddr store (core/last-key node) id (synthesize-storage-addr id))))))
   (delete-addr [_ addr session]
-    (swap! session update-in :deletes inc)))
+    (swap! session update :deletes inc)))
 
 (defn get-root-key
   [tree]
   ;; TODO find out why this is inconsistent
   (or
-   (-> tree :storage-addr (async/poll!) :konserve-key)
-   (-> tree :storage-addr (async/poll!))))
+    (-> tree :storage-addr (async/poll!) :konserve-key)
+    (-> tree :storage-addr (async/poll!))))
 
-(defn create-tree-from-root-key
-  [store root-key]
-  (go-try
-    (let [val (<? (k/get-in store [root-key]))
-          last-key (core/last-key (assoc val :storage-addr (synthesize-storage-addr root-key)))] ; need last key to bootstrap
-      (<? (core/resolve
-           (->KonserveAddr store last-key root-key (synthesize-storage-addr root-key)))))))
+  (defn create-tree-from-root-key
+    [store root-key]
+    (go-try
+     (let [val (let [ch (k/get-in store [root-key])]
+                 (case core/*async-backend*
+                   :none (async/<!! ch)
+                   :core.async (<? ch)))
+            last-key (core/last-key (assoc val :storage-addr (synthesize-storage-addr root-key)))] ; need last key to bootstrap
+        (<? (core/resolve
+            (->KonserveAddr store last-key root-key (synthesize-storage-addr root-key)))))))
 
 
-(defn add-hitchhiker-tree-handlers [store]
-  (swap! (:read-handlers store) merge
-         {'hitchhiker.konserve.KonserveAddr
-          #(-> % map->KonserveAddr
-               (assoc :store store
-                      :storage-addr (synthesize-storage-addr (:konserve-key %))))
-          'hitchhiker.tree.core.DataNode
-          (fn [{:keys [children cfg]}]
-            (core/->DataNode (into (sorted-map-by
-                                    compare) children)
-                             (promise-chan)
-                             cfg))
-          'hitchhiker.tree.core.IndexNode
-          (fn [{:keys [children cfg op-buf]}]
-            (core/->IndexNode (->> children
-                                   vec)
+  (defn add-hitchhiker-tree-handlers [store]
+    (swap! (:read-handlers store) merge
+          {'hitchhiker.konserve.KonserveAddr
+            #(-> % map->KonserveAddr
+                (assoc :store store
+                        :storage-addr (synthesize-storage-addr (:konserve-key %))))
+            'hitchhiker.tree.core.DataNode
+            (fn [{:keys [children cfg]}]
+              (core/->DataNode (into (sorted-map-by
+                                      compare) children)
                               (promise-chan)
+                              cfg))
+            'hitchhiker.tree.core.IndexNode
+            (fn [{:keys [children cfg op-buf]}]
+              (core/->IndexNode (->> children
+                                    vec)
+                                (promise-chan)
                               (vec op-buf)
                               cfg))
           'hitchhiker.tree.messaging.InsertOp
