@@ -197,7 +197,7 @@ throwable error."
   #?@(:clj
       [Object
        (compare [key1 key2]
-                (if (or (= (type key1) (type key2))
+                (if (or (= (class key1) (class key2))
                         (= (order-on-edn-types key1)
                            (order-on-edn-types key2)))
                   (try

@@ -3,7 +3,7 @@
   (:require [clojure.core.rrb-vector :refer [catvec subvec]]
             #?(:clj [clojure.core.async :refer [chan promise-chan put!] :as async]
                :cljs [cljs.core.async :refer [chan promise-chan put!] :as async])
-            [konserve.core :as k]
+            [konserve.cache :as k]
             [konserve.memory :refer [new-mem-store]]
             [hasch.core :refer [uuid]]
             [clojure.set :as set]

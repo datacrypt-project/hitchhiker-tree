@@ -10,6 +10,7 @@
             #?(:clj [konserve.filestore :refer [new-fs-store delete-store list-keys]])
             [konserve.memory :refer [new-mem-store]]
             [hitchhiker.konserve :as kons]
+            [konserve.cache :as kc]
             [hitchhiker.tree.core #?(:clj :refer :cljs :refer-macros)
              [<?? <? go-try] :as core]
             [hitchhiker.tree.messaging :as msg]
@@ -41,7 +42,7 @@
     #?(:cljs
        (async done
         (go-try
-         (let [store (async/<!! (new-mem-store)) ;; always use core.async here!
+         (let [store (kc/ensure-cache (async/<!! (new-mem-store))) ;; always use core.async here!
                backend (kons/->KonserveBackend store)
                init-tree (<? (core/reduce< (fn [t i] (msg/insert t i i))
                                            (<? (core/b-tree (core/->Config 1 3 (- 3 1))))
@@ -65,7 +66,7 @@
     #?(:clj
        (let [folder "/tmp/async-hitchhiker-tree-test"
              _ (delete-store folder)
-             store (kons/add-hitchhiker-tree-handlers (async/<!! (new-fs-store folder :config {:fsync false})))
+             store (kons/add-hitchhiker-tree-handlers (kc/ensure-cache (async/<!! (new-fs-store folder :config {:fsync false}))))
              backend (kons/->KonserveBackend store)
              flushed (<?? (core/flush-tree
                            (time (reduce (fn [t i]
@@ -112,8 +113,9 @@
       (let [folder "/tmp/konserve-mixed-workload"
             _ #?(:clj (delete-store folder) :cljs nil)
             store (kons/add-hitchhiker-tree-handlers
-                   #?(:clj (async/<!! (new-fs-store folder :config {:fsync false}))
-                      :cljs (async/<! (new-mem-store))))
+                   (kc/ensure-cache
+                    #?(:clj (async/<!! (new-fs-store folder :config {:fsync false}))
+                      :cljs (async/<! (new-mem-store)))))
             _ #?(:clj (assert (empty? (async/<!! (list-keys store)))
                               "Start with no keys")
                  :cljs nil)

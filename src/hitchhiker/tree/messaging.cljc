@@ -281,18 +281,34 @@
                 (recur (<? (core/right-successor (pop path)))))
               (async/close! iter-ch)))))
 
-    (:clj
-     (defn lookup-fwd-iter
-       "Compatibility helper to clojure sequences. Please prefer the channel
+    #?(:clj
+       (defn lookup-fwd-iter
+         "Compatibility helper to clojure sequences. Please prefer the channel
   interface of forward-iterator, as this function blocks your thread, which
   disturbs async contexts and might lead to poor performance. It is mainly here
   to facilitate testing or for exploration on the REPL."
-       [tree key]
-       (let [path (<?? (core/lookup-path tree key))
-             iter-ch (async/chan)]
-         (forward-iterator iter-ch path key)
-         (core/chan-seq iter-ch)))))
+         [tree key]
+         (let [path (<?? (core/lookup-path tree key))
+               iter-ch (async/chan)]
+           (forward-iterator iter-ch path key)
+           (core/chan-seq iter-ch)))))
 
 
 
   )
+
+
+(defn slice [tree start-key end-key]
+  (let [res (transient [])]
+    (loop [path (<?? (core/lookup-path tree start-key))]
+      (if path
+        (let  [_ (assert (core/data-node? (peek path)))
+               elements (apply-ops-in-path path)
+               #_(drop-while (fn [[k v]]
+                               (neg? (core/compare k start-key)))
+                                    )]
+          (doseq [e elements]
+            (conj! res e))
+          #_(<? (async/onto-chan iter-ch elements false))
+          (recur (<? (core/right-successor (pop path)))))))
+    (persistent! res)))
