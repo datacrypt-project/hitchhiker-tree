@@ -138,6 +138,12 @@ If you'd like to see the options for the benchmarking tool, just run `lein bench
 
 See the `doc/` folder for technical details of the hitchhiker tree and Redis garbage collection system.
 
+### Async support
+
+We have preliminary async support that has to be selected before macro expansion
+time by setting `hitchhiker.tree.async/*async-backend*` either to `none` or
+`core.async`.
+
 ## Gratitude
 
 Thanks to the early reviewers, Kovas Boguta & Leif Walsh.

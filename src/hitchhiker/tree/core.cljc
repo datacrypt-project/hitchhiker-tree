@@ -8,15 +8,13 @@
                :cljs [cljs.core.async :refer [chan put! <! promise-chan]
                       :as async])
             #?(:cljs [goog.array])
-            #?(:clj [taoensso.nippy :as nippy]))
+            #?(:clj [taoensso.nippy :as nippy])
+            [hitchhiker.tree.async :refer [*async-backend*]])
   #?(:clj (:import java.io.Writer
                    [java.util Arrays Collections]))
   #?(:cljs (:require-macros [cljs.core.async.macros :refer [go]]
                             [hitchhiker.tree.core :refer [go-try <? <?resolve]]))
   #?(:clj (:import [clojure.lang.PersistentTreeMap$BlackVal])))
-
-
-(def ^:dynamic *async-backend* :none)
 
 
 ;; cljs macro environment
@@ -205,9 +203,27 @@ throwable error."
                     (catch ClassCastException e
                       (- (order-on-edn-types key2)
                          (order-on-edn-types key1))))))
+       String
+       (compare [^String key1 key2]
+                (if (instance? String key2)
+                  (.compareTo key1 key2)
+                  (try
+                    (clojure.core/compare key1 key2)
+                    (catch ClassCastException e
+                      (- (order-on-edn-types key2)
+                         (order-on-edn-types key1))))))
        Double
        (compare [^Double key1 key2]
                 (if (instance? Double key2)
+                  (.compareTo key1 key2)
+                  (try
+                    (clojure.core/compare key1 key2)
+                    (catch ClassCastException e
+                      (- (order-on-edn-types key2)
+                         (order-on-edn-types key1))))))
+       BigDecimal
+       (compare [^BigDecimal key1 key2]
+                (if (instance? BigDecimal key2)
                   (.compareTo key1 key2)
                   (try
                     (clojure.core/compare key1 key2)
@@ -222,7 +238,17 @@ throwable error."
                     (clojure.core/compare key1 key2)
                     (catch ClassCastException e
                       (- (order-on-edn-types key2)
-                         (order-on-edn-types key1))))))]
+                         (order-on-edn-types key1))))))
+       BigInteger
+       (compare [^BigInteger key1 key2]
+                (if (instance? BigInteger key2)
+                  (.compareTo key1 key2)
+                  (try
+                    (clojure.core/compare key1 key2)
+                    (catch ClassCastException e
+                      (- (order-on-edn-types key2)
+                         (order-on-edn-types key1))))))
+       ]
      :cljs
       [number
        (compare [key1 key2] (cljs.core/compare key1 key2))

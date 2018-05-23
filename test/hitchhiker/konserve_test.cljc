@@ -14,6 +14,7 @@
             [hitchhiker.tree.core #?(:clj :refer :cljs :refer-macros)
              [<?? <? go-try] :as core]
             [hitchhiker.tree.messaging :as msg]
+            [hitchhiker.tree.async :refer [*async-backend*]]
             [hitchhiker.ops :refer [recorded-ops]]
             #?(:cljs [cljs.core.async :refer [promise-chan] :as async]
                :clj [clojure.core.async :refer [promise-chan] :as async])
@@ -26,7 +27,7 @@
 
 
 (defn iter-helper [tree key]
-  (case core/*async-backend*
+  (case *async-backend*
     :none
     (msg/forward-iterator (core/lookup-path tree key))
     :core.async
@@ -167,7 +168,7 @@
 
 #?(:clj
    (defspec test-many-keys-bigger-trees
-     100
+     1000
      (mixed-op-seq 800 200 10 1000 1000)))
 
 

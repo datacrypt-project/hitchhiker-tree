@@ -6,7 +6,8 @@
                :cljs [cljs.core.async :as async])
             #?(:clj [clojure.pprint :as pp])
             #?(:clj [hitchhiker.tree.core :refer [go-try <? <??] :as core]
-               :cljs [hitchhiker.tree.core :as core]))
+              :cljs [hitchhiker.tree.core :as core])
+            [hitchhiker.tree.async :refer [*async-backend*]])
   #?(:clj (:import java.io.Writer))
   #?(:cljs (:require-macros [hitchhiker.tree.core :refer [go-try <? <?resolve]])))
 
@@ -240,7 +241,7 @@
                         )]))
 
 
-(case core/*async-backend*
+(case *async-backend*
   :none
   (do
     (defn forward-iterator

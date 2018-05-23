@@ -9,7 +9,8 @@
             [clojure.set :as set]
             #?(:clj [hitchhiker.tree.core :refer [go-try <? <??] :as core]
                :cljs [hitchhiker.tree.core :as core])
-            [hitchhiker.tree.messaging :as msg])
+            [hitchhiker.tree.messaging :as msg]
+            [hitchhiker.tree.async :refer [*async-backend*]])
   #?(:cljs (:require-macros [hitchhiker.tree.core :refer [go-try <?]])))
 
 
@@ -26,7 +27,7 @@
   (resolve [_]
     (go-try
      (let [ch (k/get-in store [konserve-key])]
-       (-> (case core/*async-backend*
+       (-> (case *async-backend*
              :none (async/<!! ch)
              :core.async (<? ch))
            (assoc :storage-addr (synthesize-storage-addr konserve-key)))))))
@@ -48,7 +49,7 @@
                     (assoc node :storage-addr nil))]
         (let [id (uuid pnode)
               ch (k/assoc-in store [id] node)]
-          (case core/*async-backend*
+          (case *async-backend*
             :none (async/<!! ch)
             :core.async (<? ch))
           (->KonserveAddr store (core/last-key node) id (synthesize-storage-addr id))))))
@@ -66,7 +67,7 @@
     [store root-key]
     (go-try
      (let [val (let [ch (k/get-in store [root-key])]
-                 (case core/*async-backend*
+                 (case *async-backend*
                    :none (async/<!! ch)
                    :core.async (<? ch)))
             last-key (core/last-key (assoc val :storage-addr (synthesize-storage-addr root-key)))] ; need last key to bootstrap
