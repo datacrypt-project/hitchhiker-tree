@@ -831,6 +831,51 @@ throwable error."
          new-addr)
        tree))))
 
+
+;; TODO merge this with the code above
+
+(declare flush-tree-without-root)
+
+(defn flush-children-without-root
+  [children backend session]
+  (go-try
+   (loop [[c & r] children
+          res []]
+     (if-not c
+       res
+       (recur r (conj res (<? (flush-tree-without-root c backend session false))))))))
+
+
+(defn flush-tree-without-root
+  "Given the tree, finds all dirty nodes, delivering addrs into them.
+
+  Does not flush root node, but returns it."
+  ([tree backend]
+   (go-try
+     (let [session (new-session backend)
+           flushed (<? (flush-tree-without-root tree backend session true))
+           root (anchor-root backend flushed)]
+       {:tree (<?resolve root) ; root should never be unresolved for API
+        :stats session})))
+  ([tree backend stats root-node?]
+   (go-try
+     (if (dirty? tree)
+       (let [cleaned-children (if (data-node? tree)
+                                (:children tree)
+                                ;; TODO throw on nested errors
+                                (->> (flush-children-without-root (:children tree) backend stats)
+                                     <?
+                                     catvec))
+             cleaned-node (assoc tree :children cleaned-children)]
+         (if root-node?
+           cleaned-node
+           (let [new-addr (<? (write-node backend cleaned-node stats))]
+             (put! (:storage-addr tree) new-addr)
+             (when (not= new-addr (<? (:storage-addr tree)))
+               (delete-addr backend new-addr stats))
+             new-addr)))
+       tree))))
+
 ;; The parts of the serialization system that seem like they're need hooks are:
 ;; - Must provide a function that takes a node, serializes it, and returns an addr
 ;; - Must be able to rollback writing an addr

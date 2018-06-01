@@ -4,6 +4,8 @@
             #?(:clj [clojure.core.async :refer [chan promise-chan put!] :as async]
                :cljs [cljs.core.async :refer [chan promise-chan put!] :as async])
             [konserve.cache :as k]
+            #?(:clj [clojure.core.cache :as cache]
+               :cljs [cljs.cache :as cache])
             [konserve.memory :refer [new-mem-store]]
             [hasch.core :refer [uuid]]
             [clojure.set :as set]
@@ -25,12 +27,20 @@
   (dirty? [_] false)
   (last-key [_] last-key)
   (resolve [_]
-    (go-try
-     (let [ch (k/get-in store [konserve-key])]
-       (-> (case *async-backend*
-             :none (async/<!! ch)
-             :core.async (<? ch))
-           (assoc :storage-addr (synthesize-storage-addr konserve-key)))))))
+    ;; inline konserve cache resolution
+    (let [cache (:cache store)]
+      (if-let [v (cache/lookup @cache konserve-key)]
+        (go-try
+            #_(prn "hitting cache" konserve-key)
+          (swap! cache cache/hit konserve-key)
+          (assoc v :storage-addr (synthesize-storage-addr konserve-key)))
+        (go-try
+            #_(prn "missing cache")
+            (let [ch (k/get-in store [konserve-key])]
+              (-> (case *async-backend*
+                    :none (async/<!! ch)
+                    :core.async (<? ch))
+                  (assoc :storage-addr (synthesize-storage-addr konserve-key)))))))))
 
 
 (defrecord KonserveBackend [store]
