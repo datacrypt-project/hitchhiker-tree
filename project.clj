@@ -1,4 +1,4 @@
-(defproject io.replikativ/hitchhiker-tree "0.1.2-SNAPSHOT"
+(defproject io.replikativ/hitchhiker-tree "0.1.2"
   :description "A Hitchhiker Tree Library"
   :url "https://github.com/dgrnbrg/hitchhiker-tree"
   :license {:name "Eclipse Public License"
@@ -10,7 +10,8 @@
                  [org.clojure/core.rrb-vector "0.0.11"]
                  [org.clojure/core.cache "0.6.5"]
 
-                 [io.replikativ/konserve "0.5.0-beta3"]]
+                 [io.replikativ/konserve "0.5.0-beta3"]
+                 ]
   :aliases {"bench" ["with-profile" "profiling" "run" "-m" "hitchhiker.bench"]}
   :jvm-opts ["-server" "-Xmx3700m" "-Xms3700m"]
   :profiles {:test
@@ -25,7 +26,10 @@
              :dev {:dependencies [#_[binaryage/devtools "0.8.2"]
                                   #_[figwheel-sidecar "0.5.8"]
                                   #_[com.cemerick/piggieback "0.2.1"]
-                                  [org.clojure/test.check "0.9.0"]]
+                                  [org.clojure/test.check "0.9.0"]
+                                  ;; plotting
+                                  [aysylu/loom "1.0.1"]
+                                  [cheshire "5.8.0"]]
                    :source-paths ["src" "dev"]
                    ;:plugins [[lein-figwheel "0.5.8"]]
                    :repl-options {; for nREPL dev you really need to limit output
