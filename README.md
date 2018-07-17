@@ -88,7 +88,7 @@ You should check out the docstrings/usage of these functions, too:
 Outboard is an off-heap functionally persistent sorted map.
 This map allows your applications to retain huge data structures in memory across process restarts.
 
-Outboard is the the first library to make use of hitchhiker trees.
+Outboard is the first library to make use of hitchhiker trees.
 Hitchhiker trees are a functionally persistent, serializable, off-heap fractal B tree.
 They can be extended to contain a mechanism to make statistical analytics blazingly fast, and to support column-store facilities.
 
