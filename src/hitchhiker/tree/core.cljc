@@ -2,16 +2,19 @@
   (:refer-clojure :exclude [compare resolve subvec])
   (:require [clojure.core.rrb-vector :refer [catvec subvec]]
             #?(:clj [clojure.pprint :as pp])
+            #?(:clj [clojure.core.async :refer [promise-chan poll! put!]])
             #?(:clj [clojure.core.async :refer [go chan put! <! <!! promise-chan]
                      :as async]
                :cljs [cljs.core.async :refer [chan put! <! promise-chan]
                       :as async])
             #?(:cljs [goog.array])
-            #?(:clj [taoensso.nippy :as nippy]))
+            #?(:clj [taoensso.nippy :as nippy])
+            [hitchhiker.tree.async :refer [*async-backend*]])
   #?(:clj (:import java.io.Writer
                    [java.util Arrays Collections]))
   #?(:cljs (:require-macros [cljs.core.async.macros :refer [go]]
-                            [hitchhiker.tree.core :refer [go-try <? <?resolve]])))
+                            [hitchhiker.tree.core :refer [go-try <? <?resolve]]))
+  #?(:clj (:import [clojure.lang.PersistentTreeMap$BlackVal])))
 
 
 ;; cljs macro environment
@@ -37,7 +40,7 @@
   to maintain a full stack trace when jumping between multiple contexts."
   [x]
   (if (instance? #?(:clj Exception :cljs js/Error) x)
-    (throw (ex-info (or #?(:clj (.getMessage x)) (str x))
+    (throw (ex-info (or #?(:clj (.getMessage ^Exception x)) (str x))
                     (or (ex-data x) {})
                     x))
     x))
@@ -51,23 +54,34 @@
   result from the channel at some point."
      {:style/indent 1}
      [ & body]
-     `(if-cljs (cljs.core.async.macros/go
-                 (try ~@body
-                      (catch js/Error e#
-                        e#)))
+     (case *async-backend*
+       :none
+       `(if-cljs (throw (ex-info "You need an async backend for cljs." {}))
+                 (do ~@body))
+       :core.async
+       `(if-cljs (cljs.core.async.macros/go
+                   (try ~@body
+                        (catch js/Error e#
+                          e#)))
                (go
                  (try
                    ~@body
                    (catch Exception e#
-                     e#))))))
+                     e#)))))))
 
 #?(:clj
    (defmacro <?
      "Same as core.async <! but throws an exception if the channel returns a
 throwable error."
      [ch]
-     `(if-cljs (throw-if-exception (cljs.core.async/<! ~ch))
-               (throw-if-exception (<! ~ch)))))
+     (case *async-backend*
+       :none
+       `(if-cljs (throw (ex-info "You need an async backend for cljs." {}))
+                 ~ch)
+       :core.async
+       `(if-cljs (throw-if-exception (cljs.core.async/<! ~ch))
+                 (throw-if-exception (<! ~ch)))
+       )))
 
 
 #?(:clj
@@ -75,7 +89,11 @@ throwable error."
      "Same as core.async <!! but throws an exception if the channel returns a
 throwable error."
      [ch]
-     (throw-if-exception (<!! ch))))
+     (case *async-backend*
+       :none ch
+
+       :core.async
+       (throw-if-exception (<!! ch)))))
 
 (defn reduce<
   "Reduces over a sequence s with a go function go-f given the initial value
@@ -162,21 +180,75 @@ throwable error."
 ;; (based on proven data), and then send generated loads to check we stay within
 ;; our targets.
 
+;; TODO add full edn support including records
+(defn order-on-edn-types [t]
+  (cond (map? t) 0
+        (vector? t) 1
+        (set? t) 2
+        (number? t) 3
+        (string? t) 4
+        (symbol? t) 5
+        (keyword? t) 6))
+
 (extend-protocol IKeyCompare
   ;; By default, we use the default comparator
   #?@(:clj
       [Object
-       (compare [key1 key2] (clojure.core/compare key1 key2))
+       (compare [key1 key2]
+                (if (or (= (class key1) (class key2))
+                        (= (order-on-edn-types key1)
+                           (order-on-edn-types key2)))
+                  (try
+                    (clojure.core/compare key1 key2)
+                    (catch ClassCastException e
+                      (- (order-on-edn-types key2)
+                         (order-on-edn-types key1))))))
+       String
+       (compare [^String key1 key2]
+                (if (instance? String key2)
+                  (.compareTo key1 key2)
+                  (try
+                    (clojure.core/compare key1 key2)
+                    (catch ClassCastException e
+                      (- (order-on-edn-types key2)
+                         (order-on-edn-types key1))))))
        Double
        (compare [^Double key1 key2]
                 (if (instance? Double key2)
                   (.compareTo key1 key2)
-                  (clojure.core/compare key1 key2)))
+                  (try
+                    (clojure.core/compare key1 key2)
+                    (catch ClassCastException e
+                      (- (order-on-edn-types key2)
+                         (order-on-edn-types key1))))))
+       BigDecimal
+       (compare [^BigDecimal key1 key2]
+                (if (instance? BigDecimal key2)
+                  (.compareTo key1 key2)
+                  (try
+                    (clojure.core/compare key1 key2)
+                    (catch ClassCastException e
+                      (- (order-on-edn-types key2)
+                         (order-on-edn-types key1))))))
        Long
        (compare [^Long key1 key2]
                 (if (instance? Long key2)
-                  (.compareTo key1 key2))
-                (clojure.core/compare key1 key2))]
+                  (.compareTo key1 key2)
+                  (try
+                    (clojure.core/compare key1 key2)
+                    (catch ClassCastException e
+                      (- (order-on-edn-types key2)
+                         (order-on-edn-types key1))))))
+       BigInteger
+       (compare [^BigInteger key1 key2]
+                (if (instance? BigInteger key2)
+                  (.compareTo key1 key2)
+                  (try
+                    (clojure.core/compare key1 key2)
+                    (catch ClassCastException e
+                      (- (order-on-edn-types key2)
+                         (order-on-edn-types key1))))))
+       ]
      :cljs
       [number
        (compare [key1 key2] (cljs.core/compare key1 key2))
@@ -200,8 +272,8 @@ throwable error."
 (defrecord IndexNode [children storage-addr op-buf cfg]
   IResolve
   (index? [this] true)
-  (dirty? [this] (not (async/poll! storage-addr)))
-  (resolve [this] (go this))
+  (dirty? [this] (not (poll! storage-addr)))
+  (resolve [this] this #_(go this))
   (last-key [this]
     ;;TODO should optimize by caching to reduce IOps (can use monad)
     (last-key (peek children)))
@@ -215,7 +287,7 @@ throwable error."
           median (nth (index-node-keys children) (dec b))
           [left-buf right-buf] (split-with #(not (pos? (compare (:key %) median)))
                                            ;;TODO this should use msg/affects-key
-                                           (sort-by :key op-buf))]
+                                           (sort-by :key compare op-buf))]
       (->Split (->IndexNode (subvec children 0 b)
                             (promise-chan)
                             (vec left-buf)
@@ -295,7 +367,7 @@ throwable error."
      [node]
      (let [out ^Writer *out*]
        (.write out "IndexNode")
-       (.write out (node-status-bits node))
+       (.write out ^String (node-status-bits node))
        (pp/pprint-logical-block
         :prefix "{" :suffix "}"
         (pp/pprint-logical-block
@@ -319,8 +391,8 @@ throwable error."
 (defrecord DataNode [children storage-addr cfg]
   IResolve
   (index? [this] false)
-  (resolve [this] (go this)) 
-  (dirty? [this] (not (async/poll! storage-addr)))
+  (resolve [this] this #_(go this)) 
+  (dirty? [this] (not (poll! storage-addr)))
   (last-key [this]
     (when (seq children)
       (-> children
@@ -421,6 +493,7 @@ throwable error."
           (recur (pop tmp)))))))
 
 
+
 (defn right-successor
   "Given a node on a path, find's that node's right successor node"
   [path]
@@ -441,9 +514,20 @@ throwable error."
             sibling-lineage (loop [res [new-sibling]
                                     s new-sibling]
                               (let [c (-> s :children first)
-                                    c (if (tree-node? c)
+                                    ;_ (prn (type c) (= (class c) clojure.lang.PersistentTreeMap$BlackVal))
+                                    c (cond
+                                        ;; TODO cleanup path
+                                        ;; fast path
+                                        (or (index-node? c)
+                                            (data-node? c)
+                                            #?(:clj (= (class c) clojure.lang.PersistentTreeMap$Black))
+                                            #?(:clj (= (class c) clojure.lang.PersistentTreeMap$BlackVal)))
+                                        c
+
+                                        (tree-node? c)
                                         (<?resolve c)
-                                        c)]
+
+                                        :else c)]
                                 (if (or (index-node? c)
                                         (data-node? c))
                                   (recur (conj res c) c)
@@ -457,21 +541,7 @@ throwable error."
             (into path-suffix))))))
 
 
-(defn forward-iterator
-  "Takes the result of a search and puts the iterated elements onto iter-ch
-  going forward over the tree as needed. Does lg(n) backtracking sometimes."
-  [iter-ch path start-key]
-  (go-try
-      (loop [path path]
-        (if path
-          (let  [start-node (peek path)
-                 _ (assert (data-node? start-node))
-                 elements (-> start-node
-                              :children ; Get the indices of it
-                              (subseq >= start-key))]
-            (<? (async/onto-chan iter-ch elements false))
-            (recur (<? (right-successor (pop path)))))
-          (async/close! iter-ch)))))
+
 
 (defn lookup-path
   "Given a B-tree and a key, gets a path into the tree"
@@ -508,23 +578,66 @@ throwable error."
       (get key not-found)))))
 
 ;; this is only for the REPL and testing
-#?(:clj
-   (defn chan-seq [ch]
-     (when-some [v (<?? ch)]
-       (cons v (lazy-seq (chan-seq ch))))))
+
+(case *async-backend*
+  :none
+  (do
+    (defn forward-iterator
+      "Takes the result of a search and returns an iterator going
+   forward over the tree. Does lg(n) backtracking sometimes."
+      [path start-key]
+      (let [start-node (peek path)]
+        (assert (data-node? start-node))
+        (let [first-elements (-> start-node
+                                 :children ; Get the indices of it
+                                 (subseq >= start-key)) ; skip to the start-index
+              next-elements (lazy-seq
+                             (when-let [succ (right-successor (pop path))]
+                               (forward-iterator succ start-key)))]
+          (concat first-elements next-elements))))
 
 
-#?(:clj
-   (defn lookup-fwd-iter
-     "Compatibility helper to clojure sequences. Please prefer the channel
+    (defn lookup-fwd-iter
+      [tree key]
+      (let [path (lookup-path tree key)]
+        (when path
+          (forward-iterator path key)))))
+
+  :core.async
+  (do
+    #?(:clj
+       (defn chan-seq [ch]
+         (when-some [v (<?? ch)]
+           (cons v (lazy-seq (chan-seq ch))))))
+
+
+    (defn forward-iterator
+      "Takes the result of a search and puts the iterated elements onto iter-ch
+  going forward over the tree as needed. Does lg(n) backtracking sometimes."
+      [iter-ch path start-key]
+      (go-try
+          (loop [path path]
+            (if path
+              (let  [start-node (peek path)
+                     _ (assert (data-node? start-node))
+                     elements (-> start-node
+                                  :children ; Get the indices of it
+                                  (subseq >= start-key))]
+                (<? (async/onto-chan iter-ch elements false))
+                (recur (<? (right-successor (pop path)))))
+              (async/close! iter-ch)))))
+
+    #?(:clj
+       (defn lookup-fwd-iter
+         "Compatibility helper to clojure sequences. Please prefer the channel
   interface of forward-iterator, as this function blocks your thread, which
   disturbs async contexts and might lead to poor performance. It is mainly here
   to facilitate testing."
-     [tree key]
-     (let [path (<?? (lookup-path tree key))
-           iter-ch (chan)]
-       (forward-iterator iter-ch path key)
-       (chan-seq iter-ch))))
+         [tree key]
+         (let [path (<?? (lookup-path tree key))
+               iter-ch (chan)]
+           (forward-iterator iter-ch path key)
+           (chan-seq iter-ch))))))
 
 (defn insert
   [{:keys [cfg] :as tree} key value]
@@ -628,7 +741,7 @@ throwable error."
   IResolve
   (dirty? [this] false)
   (last-key [_] last-key)
-  (resolve [_] (go node)))
+  (resolve [_] node #_(go node)))
 
 #?(:clj
    (defn print-testing-addr
@@ -702,7 +815,7 @@ throwable error."
        {:tree (<?resolve root) ; root should never be unresolved for API
         :stats session})))
   ([tree backend stats]
-   (go
+   (go-try
      (if (dirty? tree)
        (let [cleaned-children (if (data-node? tree)
                                 (:children tree)
@@ -716,6 +829,51 @@ throwable error."
          (when (not= new-addr (<? (:storage-addr tree)))
            (delete-addr backend new-addr stats))
          new-addr)
+       tree))))
+
+
+;; TODO merge this with the code above
+
+(declare flush-tree-without-root)
+
+(defn flush-children-without-root
+  [children backend session]
+  (go-try
+   (loop [[c & r] children
+          res []]
+     (if-not c
+       res
+       (recur r (conj res (<? (flush-tree-without-root c backend session false))))))))
+
+
+(defn flush-tree-without-root
+  "Given the tree, finds all dirty nodes, delivering addrs into them.
+
+  Does not flush root node, but returns it."
+  ([tree backend]
+   (go-try
+     (let [session (new-session backend)
+           flushed (<? (flush-tree-without-root tree backend session true))
+           root (anchor-root backend flushed)]
+       {:tree (<?resolve root) ; root should never be unresolved for API
+        :stats session})))
+  ([tree backend stats root-node?]
+   (go-try
+     (if (dirty? tree)
+       (let [cleaned-children (if (data-node? tree)
+                                (:children tree)
+                                ;; TODO throw on nested errors
+                                (->> (flush-children-without-root (:children tree) backend stats)
+                                     <?
+                                     catvec))
+             cleaned-node (assoc tree :children cleaned-children)]
+         (if root-node?
+           cleaned-node
+           (let [new-addr (<? (write-node backend cleaned-node stats))]
+             (put! (:storage-addr tree) new-addr)
+             (when (not= new-addr (<? (:storage-addr tree)))
+               (delete-addr backend new-addr stats))
+             new-addr)))
        tree))))
 
 ;; The parts of the serialization system that seem like they're need hooks are:

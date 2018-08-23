@@ -14,6 +14,7 @@
   [t v]
   (seq (map first (msg/lookup-fwd-iter t v))))
 
+
 (defspec b-tree-sorts-uniques-random-int-vector
   1000
   (prop/for-all [v (gen/vector gen/int)]
